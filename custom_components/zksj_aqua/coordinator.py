@@ -46,6 +46,7 @@ ZksjConfigEntry = ConfigEntry["ZksjCoordinator"]
 class ZksjState:
     """The pump as of the last successful read."""
 
+    reachable: bool = False
     on: bool | None = None
     power: int | None = None
     program: list[WaveSegment] = field(default_factory=list)
@@ -78,14 +79,28 @@ class ZksjCoordinator(DataUpdateCoordinator[ZksjState]):
 
     # -- reading ----------------------------------------------------------
 
+    @property
+    def monitor_only(self) -> bool:
+        """True when we have no local key, so only reachability is knowable."""
+        return not self.device.has_local_key
+
     async def _async_update_data(self) -> ZksjState:
+        if self.monitor_only:
+            # Never fail the update here: "the pump is unreachable" is the
+            # answer this mode exists to report, not an error that should
+            # blank the entity out.
+            reachable = await self.device.async_is_reachable()
+            return ZksjState(reachable=reachable)
+
         try:
             dps = await self.device.async_refresh_all()
         except ZksjConnectionError as err:
             raise UpdateFailed(str(err)) from err
         except Exception as err:  # noqa: BLE001 - tinytuya raises broadly
             raise UpdateFailed(f"{self.device.host}: {err}") from err
-        return self._parse(dps)
+        state = self._parse(dps)
+        state.reachable = True
+        return state
 
     def _parse(self, dps: dict[str, Any]) -> ZksjState:
         """Decode a DP mapping, keeping whatever still parses.
@@ -95,7 +110,10 @@ class ZksjCoordinator(DataUpdateCoordinator[ZksjState]):
         """
         previous = self.data or ZksjState()
         state = ZksjState(
-            on=previous.on, power=previous.power, program=previous.program
+            reachable=True,
+            on=previous.on,
+            power=previous.power,
+            program=previous.program,
         )
 
         if DP_SWITCH in dps:

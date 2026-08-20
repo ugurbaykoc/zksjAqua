@@ -10,7 +10,13 @@ from homeassistant.config_entries import ConfigFlow, ConfigFlowResult
 from homeassistant.const import CONF_HOST, CONF_NAME
 from homeassistant.helpers import config_validation as cv
 
-from .const import CONF_DEVICE_ID, CONF_LOCAL_KEY, CONF_PROTOCOL_VERSION, DOMAIN
+from .const import (
+    CONF_DEVICE_ID,
+    CONF_LOCAL_KEY,
+    CONF_PROTOCOL_VERSION,
+    DEFAULT_PROTOCOL_VERSION,
+    DOMAIN,
+)
 from .device import ZksjConnectionError, async_probe
 from .discovery import DiscoveredDevice, async_discover
 
@@ -23,14 +29,14 @@ MANUAL_SCHEMA = vol.Schema(
     {
         vol.Required(CONF_HOST): cv.string,
         vol.Required(CONF_DEVICE_ID): cv.string,
-        vol.Required(CONF_LOCAL_KEY): cv.string,
+        vol.Optional(CONF_LOCAL_KEY, default=""): cv.string,
         vol.Optional(CONF_NAME, default="Wave pump"): cv.string,
     }
 )
 
 KEY_SCHEMA = vol.Schema(
     {
-        vol.Required(CONF_LOCAL_KEY): cv.string,
+        vol.Optional(CONF_LOCAL_KEY, default=""): cv.string,
         vol.Optional(CONF_NAME, default="Wave pump"): cv.string,
     }
 )
@@ -89,7 +95,7 @@ class ZksjConfigFlow(ConfigFlow, domain=DOMAIN):
             result = await self._async_create(
                 host=self._chosen.host,
                 device_id=self._chosen.device_id,
-                local_key=user_input[CONF_LOCAL_KEY],
+                local_key=user_input.get(CONF_LOCAL_KEY, ""),
                 name=user_input[CONF_NAME],
                 errors=errors,
             )
@@ -116,7 +122,7 @@ class ZksjConfigFlow(ConfigFlow, domain=DOMAIN):
             result = await self._async_create(
                 host=user_input[CONF_HOST],
                 device_id=user_input[CONF_DEVICE_ID],
-                local_key=user_input[CONF_LOCAL_KEY],
+                local_key=user_input.get(CONF_LOCAL_KEY, ""),
                 name=user_input[CONF_NAME],
                 errors=errors,
             )
@@ -146,6 +152,20 @@ class ZksjConfigFlow(ConfigFlow, domain=DOMAIN):
 
         await self.async_set_unique_id(device_id, raise_on_progress=False)
         self._abort_if_unique_id_configured(updates={CONF_HOST: host})
+
+        if not local_key:
+            # Monitor-only: without the key there is nothing to probe, and
+            # nothing to get wrong. The entry comes up with reachability
+            # alone and can be given a key later via Reconfigure.
+            return self.async_create_entry(
+                title=name,
+                data={
+                    CONF_HOST: host,
+                    CONF_DEVICE_ID: device_id,
+                    CONF_LOCAL_KEY: "",
+                    CONF_PROTOCOL_VERSION: DEFAULT_PROTOCOL_VERSION,
+                },
+            )
 
         try:
             version, dps = await async_probe(
@@ -180,7 +200,12 @@ class ZksjConfigFlow(ConfigFlow, domain=DOMAIN):
 
         if user_input is not None:
             host = user_input[CONF_HOST].strip()
-            local_key = user_input[CONF_LOCAL_KEY].strip()
+            local_key = user_input.get(CONF_LOCAL_KEY, "").strip()
+            if not local_key:
+                return self.async_update_reload_and_abort(
+                    entry,
+                    data_updates={CONF_HOST: host, CONF_LOCAL_KEY: ""},
+                )
             try:
                 version, _ = await async_probe(
                     self.hass,
@@ -205,8 +230,8 @@ class ZksjConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_HOST, default=entry.data[CONF_HOST]): cv.string,
-                    vol.Required(
-                        CONF_LOCAL_KEY, default=entry.data[CONF_LOCAL_KEY]
+                    vol.Optional(
+                        CONF_LOCAL_KEY, default=entry.data.get(CONF_LOCAL_KEY, "")
                     ): cv.string,
                 }
             ),

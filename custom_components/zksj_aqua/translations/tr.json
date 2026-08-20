@@ -10,7 +10,7 @@
       },
       "key": {
         "title": "Local key",
-        "description": "Pompa {host} adresinde bulundu (cihaz kimliği {device_id}). Local key ağda bulunmayan tek değer — pompanın eşleştirildiği Tuya hesabında duruyor. Nasıl okunacağı kurulum belgesinde yazıyor.",
+        "description": "Pompa {host} adresinde bulundu (cihaz kimliği {device_id}).\n\nTam kontrol için local key'i yapıştırın. **Boş bırakırsanız** pompa yalnızca izleme modunda eklenir: elektrikte ve ağda olup olmadığını gösteren bir Bağlantı sensörü alırsınız, başka bir şey değil — modunu, hızını veya açık/kapalı durumunu anahtar olmadan okumak mümkün değil. Anahtarı sonradan Yeniden Yapılandır ile ekleyebilirsiniz.",
         "data": {
           "local_key": "Local key",
           "name": "Ad"
@@ -18,7 +18,7 @@
       },
       "manual": {
         "title": "Pompayı elle girin",
-        "description": "Yayın yapan pompa bulunamadı veya elle girmeyi seçtiniz. Adresi `python -m tinytuya scan` ile bulabilirsiniz.",
+        "description": "Yayın yapan pompa bulunamadı veya elle girmeyi seçtiniz. Adresi `python -m tinytuya scan` ile bulabilirsiniz. Local key'i boş bırakırsanız yalnızca izleme modu kurulur.",
         "data": {
           "host": "IP adresi",
           "device_id": "Cihaz kimliği",
@@ -28,7 +28,7 @@
       },
       "reconfigure": {
         "title": "Pompa bağlantısını güncelle",
-        "description": "Yeni bir adres girin veya yeniden eşleştirmeden sonra değişen local key'i değiştirin.",
+        "description": "Yeni bir adres girin, izleme modundaki bir pompaya local key ekleyin veya yeniden eşleştirmeden sonra değişen anahtarı değiştirin. Anahtarı silerseniz pompa izleme moduna döner.",
         "data": {
           "host": "IP adresi",
           "local_key": "Local key"
@@ -92,6 +92,11 @@
       },
       "program_segments": {
         "name": "Program segmentleri"
+      }
+    },
+    "binary_sensor": {
+      "reachable": {
+        "name": "Bağlantı"
       }
     }
   },

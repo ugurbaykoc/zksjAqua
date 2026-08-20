@@ -9,13 +9,15 @@ and runs every call in the executor.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from typing import Any
 
 import tinytuya
 from homeassistant.core import HomeAssistant
 
-from .const import CONNECTION_TIMEOUT, PROTOCOL_VERSIONS
+from .const import CONNECTION_TIMEOUT, PROTOCOL_VERSIONS, TUYA_LOCAL_PORT
 from .protocol import (
     DP_CUR_MODE,
     DP_CUR_POWER,
@@ -57,6 +59,11 @@ class ZksjDevice:
     @property
     def version(self) -> str:
         return self._version
+
+    @property
+    def has_local_key(self) -> bool:
+        """Whether we hold the credential needed to read or write data points."""
+        return bool(self._local_key)
 
     def _build(self) -> tinytuya.Device:
         device = tinytuya.Device(
@@ -117,6 +124,29 @@ class ZksjDevice:
         status read; DP 106 is the vendor's own way of asking for it.
         """
         return await self.async_set(DP_GET_MODE, encode_get_mode(int(dp)))
+
+    async def async_is_reachable(self) -> bool:
+        """Is the pump powered up and on the network?
+
+        Opening the Tuya control port answers that without any credentials,
+        which is the whole of what can be known about a pump whose local key
+        we do not have.  It says nothing about whether the pump is running:
+        one switched off over its own data point still answers here.
+        """
+        writer = None
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(self.host, TUYA_LOCAL_PORT),
+                CONNECTION_TIMEOUT,
+            )
+            return True
+        except (OSError, TimeoutError):
+            return False
+        finally:
+            if writer is not None:
+                writer.close()
+                with contextlib.suppress(OSError, TimeoutError):
+                    await writer.wait_closed()
 
     async def async_close(self) -> None:
         """Release the socket."""

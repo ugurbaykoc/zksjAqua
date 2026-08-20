@@ -10,13 +10,23 @@ from .coordinator import ZksjConfigEntry, ZksjCoordinator
 from .device import ZksjDevice
 from .services import async_setup_services
 
-PLATFORMS: list[Platform] = [
+# Reachability needs no credentials, so it is always available.
+MONITOR_PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR]
+
+# Everything else needs the local key to read or write data points.
+CONTROL_PLATFORMS: list[Platform] = [
     Platform.BUTTON,
     Platform.NUMBER,
     Platform.SELECT,
     Platform.SENSOR,
     Platform.SWITCH,
 ]
+
+
+def _platforms(coordinator: ZksjCoordinator) -> list[Platform]:
+    if coordinator.monitor_only:
+        return MONITOR_PLATFORMS
+    return MONITOR_PLATFORMS + CONTROL_PLATFORMS
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ZksjConfigEntry) -> bool:
@@ -33,15 +43,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ZksjConfigEntry) -> bool
     await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = coordinator
-    async_setup_services(hass)
+    if not coordinator.monitor_only:
+        async_setup_services(hass)
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    await hass.config_entries.async_forward_entry_setups(entry, _platforms(coordinator))
     return True
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: ZksjConfigEntry) -> bool:
     """Unload a config entry."""
-    unloaded = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    unloaded = await hass.config_entries.async_unload_platforms(
+        entry, _platforms(entry.runtime_data)
+    )
     if unloaded:
         await entry.runtime_data.async_shutdown()
     return unloaded

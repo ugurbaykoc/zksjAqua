@@ -26,6 +26,10 @@ SMART_WAVE_PRODUCT_IDS: Final = (
 PROTOCOL_VERSIONS: Final = ("3.5", "3.4", "3.3", "3.2", "3.1")
 DEFAULT_PROTOCOL_VERSION: Final = "3.3"
 
+# The port Tuya devices listen on for local control.  Reachable without
+# credentials, which is what makes the monitor-only mode possible.
+TUYA_LOCAL_PORT: Final = 6668
+
 DEFAULT_UPDATE_INTERVAL: Final = 30.0
 CONNECTION_TIMEOUT: Final = 5.0
 

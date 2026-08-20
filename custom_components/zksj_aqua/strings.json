@@ -10,7 +10,7 @@
       },
       "key": {
         "title": "Local key",
-        "description": "Found the pump at {host} (device id {device_id}). The local key is the one value that is not on the network — it lives in the Tuya account the pump was paired to. See the setup guide for how to read it.",
+        "description": "Found the pump at {host} (device id {device_id}).\n\nPaste its local key for full control. **Leave it blank** to add the pump in monitor-only mode: you get a Connection sensor showing whether it has power and is on the network, and nothing else — reading its mode, speed or on/off state is not possible without the key. You can add the key later with Reconfigure.",
         "data": {
           "local_key": "Local key",
           "name": "Name"
@@ -18,7 +18,7 @@
       },
       "manual": {
         "title": "Enter the pump by hand",
-        "description": "No pump was found broadcasting, or you chose to type it in. Find the address with `python -m tinytuya scan`.",
+        "description": "No pump was found broadcasting, or you chose to type it in. Find the address with `python -m tinytuya scan`. Leave the local key blank for monitor-only mode.",
         "data": {
           "host": "IP address",
           "device_id": "Device id",
@@ -28,7 +28,7 @@
       },
       "reconfigure": {
         "title": "Update pump connection",
-        "description": "Point Home Assistant at a new address, or replace a local key that changed after re-pairing.",
+        "description": "Point Home Assistant at a new address, add a local key to a monitor-only pump, or replace a key that changed after re-pairing. Clearing the key returns the pump to monitor-only.",
         "data": {
           "host": "IP address",
           "local_key": "Local key"
@@ -92,6 +92,11 @@
       },
       "program_segments": {
         "name": "Program segments"
+      }
+    },
+    "binary_sensor": {
+      "reachable": {
+        "name": "Connection"
       }
     }
   },
