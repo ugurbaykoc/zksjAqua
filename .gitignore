@@ -1,2 +1,8 @@
 __pycache__/
 *.pyc
+.pytest_cache/
+
+# Build artifact: a packaged copy of custom_components/zksj_aqua for
+# hand-installing into a Home Assistant config directory. Generated on
+# demand, never the source of truth.
+zksj_aqua.zip
