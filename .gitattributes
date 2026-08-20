@@ -1,0 +1,1 @@
+apk/*.apk filter= diff= merge= -text

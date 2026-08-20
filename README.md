@@ -181,6 +181,31 @@ For a cleaner integration without `rest_command`, copy `custom_components/mobius
 
 ---
 
+## Also in this repo: ZKSJ AQUA wave pump (`custom_components/zksj_aqua`)
+
+A second, unrelated device: the **ZKSJ / Zhongke DC wave pump** (Slim Pro
+series), normally driven by the vendor's `ZKSJ AQUA` Android app over BLE.
+
+Unlike the Radion bridge above, this one is a proper Home Assistant custom
+component — HA talks to the pump directly, so it needs a Bluetooth adapter
+within range of the tank.
+
+| Entity | Platform |
+|---|---|
+| Power | `switch` |
+| Flow level (1–10) | `number` |
+| Wave mode | `select` |
+| Feed mode | `button` |
+| Pump speed / feed countdown | `sensor` |
+
+**Status: the Home Assistant layer is complete; the BLE protocol profile is
+not yet extracted.** `protocol.PROFILES` is empty, so adding a pump aborts
+with `no_protocol` instead of writing guessed bytes to a pump running a live
+tank. See [`docs/PROTOCOL.md`](docs/PROTOCOL.md) for how a profile is derived
+from the vendor APK and what still has to be filled in.
+
+---
+
 ## Contributing
 
 If you have a different Radion model and want to add support, open an issue with:

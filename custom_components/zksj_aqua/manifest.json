@@ -1,0 +1,14 @@
+{
+  "domain": "zksj_aqua",
+  "name": "ZKSJ AQUA",
+  "bluetooth": [],
+  "codeowners": ["@ugurbaykoc"],
+  "config_flow": true,
+  "dependencies": ["bluetooth_adapters"],
+  "documentation": "https://github.com/ugurbaykoc/mobius-xr15-ha",
+  "integration_type": "device",
+  "iot_class": "local_polling",
+  "issue_tracker": "https://github.com/ugurbaykoc/mobius-xr15-ha/issues",
+  "requirements": ["bleak-retry-connector>=3.5.0"],
+  "version": "0.1.0"
+}

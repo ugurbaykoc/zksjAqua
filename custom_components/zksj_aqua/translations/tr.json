@@ -1,0 +1,36 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "confirm": {
+        "description": "{name} ({model}) eklensin mi?"
+      },
+      "user": {
+        "data": {
+          "address": "Cihaz"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "Bu pompa zaten kurulu.",
+      "no_devices_found": "ZKSJ pompası bulunamadı. Pompanın mod düğmesine Bluetooth LED'i yanıp sönene kadar basılı tutun ve tekrar deneyin.",
+      "no_protocol": "Bu sürümde çözülmüş bir ZKSJ protokol profili yok, bu yüzden pompa eklenemiyor.",
+      "unsupported_model": "Bu ZKSJ cihazı henüz desteklenmiyor."
+    }
+  },
+  "entity": {
+    "button": {
+      "feed": { "name": "Yemleme modu" }
+    },
+    "number": {
+      "speed": { "name": "Akış seviyesi" }
+    },
+    "select": {
+      "wave_mode": { "name": "Dalga modu" }
+    },
+    "sensor": {
+      "rpm": { "name": "Pompa devri" },
+      "feed_remaining": { "name": "Yemleme modu kalan süre" }
+    }
+  }
+}

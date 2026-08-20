@@ -1,0 +1,36 @@
+{
+  "config": {
+    "flow_title": "{name}",
+    "step": {
+      "confirm": {
+        "description": "Add {name} ({model})?"
+      },
+      "user": {
+        "data": {
+          "address": "Device"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This pump is already set up.",
+      "no_devices_found": "No ZKSJ pump found. Long-press the pump's mode button until the Bluetooth LED flashes, then try again.",
+      "no_protocol": "This build has no decoded ZKSJ protocol profile yet, so no pump can be added.",
+      "unsupported_model": "This ZKSJ device is not supported yet."
+    }
+  },
+  "entity": {
+    "button": {
+      "feed": { "name": "Feed mode" }
+    },
+    "number": {
+      "speed": { "name": "Flow level" }
+    },
+    "select": {
+      "wave_mode": { "name": "Wave mode" }
+    },
+    "sensor": {
+      "rpm": { "name": "Pump speed" },
+      "feed_remaining": { "name": "Feed mode remaining" }
+    }
+  }
+}
