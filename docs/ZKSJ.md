@@ -52,51 +52,54 @@ its local key. The protocol version is probed automatically.
 ## Getting the device id and local key
 
 These two values are what let Home Assistant open a local connection to the
-pump. They are minted when the pump is paired, and change if it is paired
-again.
+pump. They are minted when the pump is paired.
 
-Both live in Tuya's account system, and getting them out has one prerequisite
-that is easy to miss: **the ZKSJ AQUA app cannot hand them over.** Reading
-extraction tools will point you at *Me → Settings → Account and Security →
-User Code*; that screen exists in Tuya's own Smart Life and Tuya Smart apps,
-not in ZKSJ's. The ZKSJ app has a QR scanner, but it only scans *device*
-codes to add hardware — it has no account-linking screen at all.
+The app already has both — it needs them for LAN control — so the shortest
+route is to read them out of the app, which changes nothing about your
+setup. The pump stays paired to your ZKSJ account and the app keeps working.
 
-So the first step is to get the pump onto a Tuya account you can read.
+Note that you cannot get them by pulling the app's files. `allowBackup` is
+on, but the cache is written through `SecurityFile` and `libtuyammkv.so`,
+which encrypt it natively; the files come out unreadable. Reading the values
+from memory while the app runs avoids the encryption entirely.
 
-### Step 1: pair the pump with Smart Life
+### Recommended: read them from the running app
 
-Install **Smart Life** (or **Tuya Smart**) and pair the pump with it, the same
-way you paired it with the ZKSJ app — it is a stock Tuya Wi-Fi device and
-pairs normally.
+Needs [Frida](https://frida.re/) and either a rooted Android phone or an
+emulator running the ZKSJ app. Nothing is written and nothing is re-paired.
 
-Smart Life will show the pump as a bare device with little or no usable
-control; that is the same raw-datapoint problem described above and it does
-not matter here. You are only using Smart Life to hold the pump on an
-account you can query. All the actual control comes from this integration.
+1. Install `frida-tools` on your computer and `frida-server` on the phone,
+   per Frida's own setup guide.
+2. Log into the ZKSJ app as usual, so your pump is on the account.
+3. Run:
 
-> A Tuya device belongs to one home at a time. Pairing into Smart Life takes
-> the pump out of the ZKSJ app — which is the point, but worth knowing before
-> you start. Smart Life can share it back if you want both.
+   ```bash
+   frida -U -f com.zhongkesz.smartaquariumpro -l tools/dump_local_keys.js
+   ```
 
-### Step 2: read the key
+4. Open the device list in the app. Each device is printed with its id, local
+   key, IP and product id, and the wave pump is flagged as such.
 
-With the pump on a Smart Life account,
-[`tuya-local-key`](https://github.com/vineetchoudhary/tuya-local-key) reads it
-without any Tuya developer account:
+> The APK ships ARM libraries only. A real ARM phone is the easy path; on an
+> emulator you need an image with ARM translation (Android 11+ x86\_64
+> images have it), or Waydroid on ARM hardware.
 
-1. In Smart Life: **Me → Settings → Account and Security → User Code**.
-2. Run the tool with that user code. It prints a QR code in the terminal and
-   writes `tuya-login-qr.png` as a fallback.
-3. In Smart Life, tap **+ → Scan**, point it at the QR code, confirm login.
-4. It lists your devices. Copy the pump's `id` and `key`.
+### Alternative: move the pump to Smart Life
 
-If the QR login does not work for your region, the older route still does:
-a free Cloud project at [iot.tuya.com](https://iot.tuya.com/), **Devices →
-Link App Account** (scanned from Smart Life, again not from the ZKSJ app),
-then `python -m tinytuya wizard`.
+If rooting or an emulator is not worth it, pair the pump into **Smart Life**
+instead — it is a stock Tuya Wi-Fi device and pairs normally. Then the usual
+extraction tools work, because Smart Life has the account-linking screen that
+the ZKSJ app lacks: read the key with
+[`tuya-local-key`](https://github.com/vineetchoudhary/tuya-local-key) (Me →
+Settings → Account and Security → User Code), or via a Cloud project at
+[iot.tuya.com](https://iot.tuya.com/) and `python -m tinytuya wizard`.
 
-Once the integration is configured, nothing contacts Tuya again.
+The trade-off: a Tuya device belongs to one home at a time, so the pump
+leaves the ZKSJ app. Your other ZKSJ devices stay where they are, and Home
+Assistant covers everything the app did for the pump — but vendor firmware
+updates for it go with it.
+
+Either way, once the integration is configured nothing contacts Tuya again.
 
 ### Why not just log in the way the app does?
 
@@ -112,10 +115,8 @@ does not merely sign its API calls — `JNICLibrary` shows request bodies being
 package name, an encrypted asset shipped in the APK, and the app `Context`,
 plus a tamper-check callback. Following that path would mean shipping a
 reimplementation of Tuya's anti-tamper layer, tied to one app build and
-broken by the next SDK update.
-
-The Smart Life route above reaches the same data through an interface meant
-to be used by third parties, which is why it keeps working.
+broken by the next SDK update. Reading the key from the app's own memory
+gets the same value with none of that.
 
 ### Finding the IP address
 
