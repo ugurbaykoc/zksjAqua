@@ -1,153 +1,333 @@
-"""Wire protocol for ZKSJ AQUA wave pumps.
+"""Wire format for ZKSJ AQUA wave pumps.
 
-Everything the pump understands is described here and nowhere else: the GATT
-characteristics, the framing, and the mode/speed encoding.  The rest of the
-integration talks to a :class:`DeviceProfile` and never touches raw bytes, so
-adding a second pump generation means adding a profile, not editing platforms.
+The pump is a Tuya device, but almost nothing about it is a standard Tuya
+data point: the interesting state lives in raw hex DPs that generic Tuya
+integrations pass through untouched, which is why the pump shows up as an
+inert switch (or not at all) under them.  This module is the missing half --
+it encodes and decodes those blobs.
 
-The constants come out of the vendor Android app
-(``com.zhongkesz.smartaquariumpro``).  Until a profile is filled in from that
-app, :func:`get_profile` raises and the config entry fails with a message that
-says so -- an integration that guesses at a checksum would silently write
-garbage to a pump running someone's tank.
+Everything here was derived from the vendor Android app,
+``com.zhongkesz.smartaquariumpro`` 1.7.0, specifically
+``com.zhongkesz.smartaquariumpro.zhongke.smart_wave.beans``.  All multi-byte
+fields are big-endian.
+
+Data points
+-----------
+
+===  ==============  =====  =====================================================
+DP   Name            R/W    Payload
+===  ==============  =====  =====================================================
+101  cur_mode        R/W    N x 12-byte :class:`WaveSegment` -- the active program
+102  cur_power       R      1 byte, current output 0-100 %
+103  feed            R/W    write ``state,duration``; read adds countdown & power
+104  preview         W      11 bytes, run one segment briefly without saving
+105  wave_action     R/W    ``action,identity`` + N x 12-byte segments
+106  get_mode        W      ``identity,query_dp`` -- asks the pump to report a DP
+107  sync_time       W      4 bytes, milliseconds since local midnight
+108  switch          R/W    bool, pump on/off
+===  ==============  =====  =====================================================
 """
 
 from __future__ import annotations
 
-import logging
-from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from enum import IntEnum
 from typing import Final
 
-_LOGGER = logging.getLogger(__name__)
+DP_CUR_MODE: Final = "101"
+DP_CUR_POWER: Final = "102"
+DP_FEED: Final = "103"
+DP_PREVIEW: Final = "104"
+DP_WAVE_ACTION: Final = "105"
+DP_GET_MODE: Final = "106"
+DP_SYNC_TIME: Final = "107"
+DP_SWITCH: Final = "108"
+
+SEGMENT_SIZE: Final = 12
+SECONDS_PER_DAY: Final = 86400
 
 
-class ZksjError(Exception):
-    """Base class for protocol errors."""
+class ZksjProtocolError(Exception):
+    """A payload from the pump did not match the format the app uses."""
 
 
-class ProtocolNotAvailable(ZksjError):
-    """No decoded protocol profile is available for this device."""
+class WaveType(IntEnum):
+    """Wave patterns, numbered as the app's ``WaveOptionType`` numbers them."""
 
-
-class FrameError(ZksjError):
-    """A frame from the pump was malformed or failed its checksum."""
+    CONSTANT = 0
+    PULSE = 1
+    GYRE = 2
+    NUTRIENT_TRANSPORT = 3
+    TIDAL_SWELL = 4
+    RANDOM = 5
 
 
 @dataclass(frozen=True, slots=True)
-class WaveMode:
-    """One selectable wave pattern.
+class WaveLimits:
+    """The ranges the app enforces in its own UI for one wave type.
 
-    ``key`` is what Home Assistant stores and what translations key off, so it
-    must stay stable even if the vendor renames the mode.  ``code`` is the
-    on-the-wire value and may differ between pump generations.
+    Worth honouring: the pump is not known to range-check these, and the app
+    is the only evidence of what it was built to accept.
     """
 
-    key: str
-    code: int
+    power: tuple[int, int]
+    freq: tuple[int, int]
+    pwm: tuple[int, int]
+
+    @property
+    def has_freq(self) -> bool:
+        return self.freq != (0, 0)
+
+    @property
+    def has_pwm(self) -> bool:
+        return self.pwm != (0, 0)
+
+
+LIMITS: Final[dict[WaveType, WaveLimits]] = {
+    WaveType.CONSTANT: WaveLimits(power=(0, 100), freq=(0, 0), pwm=(0, 0)),
+    WaveType.PULSE: WaveLimits(power=(10, 100), freq=(3, 100), pwm=(30, 70)),
+    WaveType.GYRE: WaveLimits(power=(10, 100), freq=(20, 300), pwm=(30, 70)),
+    WaveType.NUTRIENT_TRANSPORT: WaveLimits(power=(50, 100), freq=(0, 0), pwm=(0, 0)),
+    WaveType.TIDAL_SWELL: WaveLimits(power=(50, 100), freq=(0, 0), pwm=(0, 0)),
+    WaveType.RANDOM: WaveLimits(power=(0, 0), freq=(0, 0), pwm=(0, 0)),
+}
+
+# Byte 1 of a segment is overloaded: for the two waveforms that have a duty
+# cycle it carries pwm biased by 128, and for every other type it carries the
+# segment's identity.
+_PWM_BIAS: Final = 128
+_PWM_TYPES: Final = frozenset({WaveType.PULSE, WaveType.GYRE})
+
+
+@dataclass(slots=True)
+class WaveSegment:
+    """One stretch of the day running one waveform.
+
+    A pump's program (DP 101) is a list of these.  Times are seconds since
+    local midnight; a segment covering the whole day is how the app expresses
+    "just run this pattern".
+    """
+
+    type: WaveType = WaveType.CONSTANT
+    identity: int = 0
+    min_power: int = 0
+    max_power: int = 100
+    freq: int = 0
+    pwm: int = 0
+    start_time: int = 0
+    end_time: int = SECONDS_PER_DAY
+
+    @property
+    def limits(self) -> WaveLimits:
+        return LIMITS[self.type]
+
+    @property
+    def has_pwm(self) -> bool:
+        return self.type in _PWM_TYPES
+
+    def encode(self) -> bytes:
+        raw = bytearray(SEGMENT_SIZE)
+        raw[0] = self.type & 0xFF
+        # pwm and identity share byte 1; which one is written depends on type.
+        raw[1] = (
+            (self.pwm + _PWM_BIAS) & 0xFF if self.has_pwm else self.identity & 0xFF
+        )
+        raw[2] = self.min_power & 0xFF
+        raw[3] = self.max_power & 0xFF
+        raw[4:6] = self.freq.to_bytes(2, "big")
+        raw[6:9] = self.start_time.to_bytes(3, "big")
+        raw[9:12] = self.end_time.to_bytes(3, "big")
+        return bytes(raw)
+
+    @classmethod
+    def decode(cls, raw: bytes) -> WaveSegment:
+        if len(raw) != SEGMENT_SIZE:
+            raise ZksjProtocolError(
+                f"wave segment must be {SEGMENT_SIZE} bytes, got {len(raw)}"
+            )
+        try:
+            wave_type = WaveType(raw[0])
+        except ValueError as err:
+            raise ZksjProtocolError(f"unknown wave type {raw[0]}") from err
+
+        has_pwm = wave_type in _PWM_TYPES
+        return cls(
+            type=wave_type,
+            identity=0 if has_pwm else raw[1],
+            min_power=raw[2],
+            max_power=raw[3],
+            freq=int.from_bytes(raw[4:6], "big"),
+            pwm=raw[1] - _PWM_BIAS if has_pwm else 0,
+            start_time=int.from_bytes(raw[6:9], "big"),
+            end_time=int.from_bytes(raw[9:12], "big"),
+        )
+
+    @classmethod
+    def all_day(cls, wave_type: WaveType, **kwargs: int) -> WaveSegment:
+        """A segment covering the whole day -- "just run this pattern"."""
+        return cls(type=wave_type, start_time=0, end_time=SECONDS_PER_DAY, **kwargs)
+
+
+def encode_program(segments: list[WaveSegment]) -> str:
+    """DP 101 payload for a program."""
+    if not segments:
+        raise ZksjProtocolError("a program needs at least one segment")
+    return b"".join(segment.encode() for segment in segments).hex()
+
+
+def decode_program(payload: str) -> list[WaveSegment]:
+    """Parse a DP 101 payload."""
+    raw = _unhex(payload, DP_CUR_MODE)
+    if not raw or len(raw) % SEGMENT_SIZE:
+        raise ZksjProtocolError(
+            f"DP {DP_CUR_MODE} payload of {len(raw)} bytes is not a whole "
+            f"number of {SEGMENT_SIZE}-byte segments"
+        )
+    return [
+        WaveSegment.decode(raw[offset : offset + SEGMENT_SIZE])
+        for offset in range(0, len(raw), SEGMENT_SIZE)
+    ]
+
+
+def decode_power(payload: str) -> int:
+    """Parse a DP 102 payload: the pump's current output, as a percentage."""
+    raw = _unhex(payload, DP_CUR_POWER)
+    if len(raw) != 1:
+        raise ZksjProtocolError(f"DP {DP_CUR_POWER} should be 1 byte, got {len(raw)}")
+    return raw[0]
 
 
 @dataclass(frozen=True, slots=True)
-class PumpState:
-    """A snapshot of the pump, as last reported by it."""
+class FeedState:
+    """DP 103 as the pump reports it."""
 
-    power: bool | None = None
-    mode: str | None = None
-    speed: int | None = None
-    feed_active: bool | None = None
-    feed_remaining: int | None = None
-    rpm: int | None = None
+    active: bool
+    duration: int
+    countdown: int
+    power: int
 
 
-class Codec(ABC):
-    """Turns intents into frames and notifications back into state."""
+def encode_feed(*, start: bool, duration: int, power: int = 0) -> str:
+    """DP 103 payload.
 
-    @abstractmethod
-    def encode_query(self) -> bytes:
-        """Ask the pump for its current state."""
-
-    @abstractmethod
-    def encode_power(self, on: bool) -> bytes:
-        """Start or stop the pump."""
-
-    @abstractmethod
-    def encode_speed(self, level: int) -> bytes:
-        """Set the flow level."""
-
-    @abstractmethod
-    def encode_mode(self, mode: WaveMode) -> bytes:
-        """Switch the wave pattern."""
-
-    @abstractmethod
-    def encode_feed(self, on: bool) -> bytes:
-        """Enter or leave feed mode."""
-
-    @abstractmethod
-    def decode(self, payload: bytes, previous: PumpState) -> PumpState:
-        """Fold a notification into the known state.
-
-        Pumps report partial state, so unparsed fields must be carried over
-        from ``previous`` rather than reset to ``None``.
-        """
+    The app writes six bytes and the pump answers with ten -- the extra four
+    being the countdown it is now running.
+    """
+    return bytes(
+        [1 if start else 0, *duration.to_bytes(4, "big"), power & 0xFF]
+    ).hex()
 
 
-@dataclass(frozen=True, slots=True)
-class DeviceProfile:
-    """Everything model-specific about one pump generation."""
-
-    key: str
-    model: str
-    service_uuid: str
-    write_uuid: str
-    notify_uuid: str
-    codec: Codec
-    modes: tuple[WaveMode, ...]
-    min_speed: int
-    max_speed: int
-    # Advertised names that identify this generation.  Matched case
-    # insensitively against the BLE local name, with a trailing ``*``
-    # meaning prefix.
-    local_names: tuple[str, ...] = field(default=())
-
-    def mode_by_key(self, key: str) -> WaveMode:
-        for mode in self.modes:
-            if mode.key == key:
-                return mode
-        raise ProtocolNotAvailable(f"{self.model} has no wave mode {key!r}")
-
-    def matches_name(self, local_name: str | None) -> bool:
-        if not local_name:
-            return False
-        candidate = local_name.strip().lower()
-        for pattern in self.local_names:
-            pattern = pattern.lower()
-            if pattern.endswith("*"):
-                if candidate.startswith(pattern[:-1]):
-                    return True
-            elif candidate == pattern:
-                return True
-        return False
+def decode_feed(payload: str) -> FeedState:
+    """Parse a DP 103 report."""
+    raw = _unhex(payload, DP_FEED)
+    if len(raw) < 10:
+        raise ZksjProtocolError(
+            f"DP {DP_FEED} report should be 10 bytes, got {len(raw)}"
+        )
+    return FeedState(
+        active=raw[0] == 1,
+        duration=int.from_bytes(raw[1:5], "big"),
+        countdown=int.from_bytes(raw[5:9], "big"),
+        power=raw[9],
+    )
 
 
-# Populated from the decompiled vendor app.  See docs/PROTOCOL.md.
-PROFILES: Final[dict[str, DeviceProfile]] = {}
+def encode_preview(segment: WaveSegment, *, start: bool, duration: int) -> str:
+    """DP 104 payload: run one waveform briefly without changing the program."""
+    raw = bytearray(11)
+    raw[0] = 1 if start else 0
+    raw[1] = segment.type & 0xFF
+    raw[2] = (
+        (segment.pwm + _PWM_BIAS) & 0xFF if segment.has_pwm else segment.identity & 0xFF
+    )
+    raw[3] = segment.min_power & 0xFF
+    raw[4] = segment.max_power & 0xFF
+    raw[5:7] = segment.freq.to_bytes(2, "big")
+    raw[7:11] = duration.to_bytes(4, "big")
+    return bytes(raw).hex()
 
 
-def get_profile(key: str) -> DeviceProfile:
-    """Look up a profile by key."""
+def encode_get_mode(query_dp: int, identity: int = 0) -> str:
+    """DP 106 payload: ask the pump to report ``query_dp``.
+
+    The pump does not volunteer the program on connect, so this is how a
+    fresh coordinator gets a first picture of it.
+    """
+    return bytes([identity & 0xFF, *query_dp.to_bytes(2, "big")]).hex()
+
+
+def encode_sync_time(seconds_since_midnight: int, milliseconds: int = 0) -> str:
+    """DP 107 payload.
+
+    The pump keeps its own clock to run time-based programs, and nothing
+    resets it across a power cut -- so a program written yesterday plays at
+    the wrong time until something syncs it.
+    """
+    value = seconds_since_midnight * 1000 + milliseconds
+    return value.to_bytes(4, "big").hex()
+
+
+def _unhex(payload: str, dp: str) -> bytes:
     try:
-        return PROFILES[key]
-    except KeyError:
-        raise ProtocolNotAvailable(
-            f"No decoded ZKSJ protocol profile named {key!r}. "
-            "See docs/PROTOCOL.md for how profiles are derived from the "
-            "vendor app."
-        ) from None
+        return bytes.fromhex(payload)
+    except (ValueError, TypeError) as err:
+        raise ZksjProtocolError(f"DP {dp} payload is not hex: {payload!r}") from err
 
 
-def match_profile(local_name: str | None) -> DeviceProfile | None:
-    """Find the profile for an advertised name, if one claims it."""
-    for profile in PROFILES.values():
-        if profile.matches_name(local_name):
-            return profile
-    return None
+def clamp(value: int, bounds: tuple[int, int]) -> int:
+    """Pull a value inside a wave type's permitted range."""
+    low, high = bounds
+    return max(low, min(high, value))
+
+
+def active_segment_index(segments: list[WaveSegment], seconds_of_day: int) -> int:
+    """Which segment of a program is running right now.
+
+    Segments may be listed out of order and need not tile the day, so this
+    falls back to the first one rather than reporting nothing -- a pump with
+    a gap in its program is still running *something*.
+    """
+    for index, segment in enumerate(segments):
+        start, end = segment.start_time, segment.end_time
+        if start <= end:
+            if start <= seconds_of_day < end:
+                return index
+        # A segment that wraps past midnight is two ranges, not one.
+        elif seconds_of_day >= start or seconds_of_day < end:
+            return index
+    return 0
+
+
+def retyped(segment: WaveSegment, new_type: WaveType) -> WaveSegment:
+    """Recast a segment as another wave type, keeping what still applies.
+
+    Each type has its own accepted ranges, so a value that was legal for the
+    old type is clamped rather than carried over blindly -- switching from
+    constant at 0 % to nutrient transport, whose floor is 50 %, must not
+    leave the pump asking for an out-of-range 0.
+    """
+    limits = LIMITS[new_type]
+    return WaveSegment(
+        type=new_type,
+        identity=segment.identity,
+        min_power=clamp(segment.min_power, limits.power),
+        max_power=clamp(segment.max_power, limits.power),
+        freq=clamp(segment.freq, limits.freq) if limits.has_freq else 0,
+        pwm=clamp(segment.pwm, limits.pwm) if limits.has_pwm else 0,
+        start_time=segment.start_time,
+        end_time=segment.end_time,
+    )
+
+
+def replace_segment(
+    segments: list[WaveSegment], index: int, replacement: WaveSegment
+) -> list[WaveSegment]:
+    """A program with one segment swapped out.
+
+    Editing in place rather than replacing the whole program is what keeps a
+    multi-segment daily schedule intact when someone nudges the flow slider.
+    """
+    updated = list(segments)
+    updated[index] = replacement
+    return updated

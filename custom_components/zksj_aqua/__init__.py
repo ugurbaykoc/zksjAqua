@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-from homeassistant.components import bluetooth
-from homeassistant.const import CONF_ADDRESS, Platform
+from homeassistant.const import CONF_HOST, Platform
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 
-from .const import CONF_PROFILE
+from .const import CONF_DEVICE_ID, CONF_LOCAL_KEY, CONF_PROTOCOL_VERSION
 from .coordinator import ZksjConfigEntry, ZksjCoordinator
-from .device import ZksjPump
-from .protocol import ProtocolNotAvailable, get_profile
+from .device import ZksjDevice
+from .services import async_setup_services
 
 PLATFORMS: list[Platform] = [
     Platform.BUTTON,
@@ -23,33 +21,19 @@ PLATFORMS: list[Platform] = [
 
 async def async_setup_entry(hass: HomeAssistant, entry: ZksjConfigEntry) -> bool:
     """Set up a pump from a config entry."""
-    address: str = entry.data[CONF_ADDRESS]
+    device = ZksjDevice(
+        hass,
+        host=entry.data[CONF_HOST],
+        device_id=entry.data[CONF_DEVICE_ID],
+        local_key=entry.data[CONF_LOCAL_KEY],
+        version=entry.data[CONF_PROTOCOL_VERSION],
+    )
 
-    try:
-        profile = get_profile(entry.data[CONF_PROFILE])
-    except ProtocolNotAvailable as err:
-        # Not retryable: no amount of waiting produces a protocol profile.
-        raise ConfigEntryError(str(err)) from err
-
-    ble_device = bluetooth.async_ble_device_from_address(hass, address, connectable=True)
-    if ble_device is None:
-        raise ConfigEntryNotReady(
-            f"Could not find ZKSJ pump {address}; it may be out of range"
-        )
-
-    pump = ZksjPump(ble_device, profile)
-    coordinator = ZksjCoordinator(hass, entry, pump)
+    coordinator = ZksjCoordinator(hass, entry, device)
     await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = coordinator
-    entry.async_on_unload(
-        bluetooth.async_register_callback(
-            hass,
-            lambda service_info, change: pump.set_ble_device(service_info.device),
-            bluetooth.BluetoothCallbackMatcher(address=address),
-            bluetooth.BluetoothScanningMode.ACTIVE,
-        )
-    )
+    async_setup_services(hass)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True

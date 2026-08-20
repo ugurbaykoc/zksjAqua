@@ -1,227 +1,196 @@
-"""BLE transport for a single ZKSJ AQUA pump.
+"""Local transport to a ZKSJ AQUA pump.
 
-The pump exposes one write characteristic and one notify characteristic and
-speaks a request/response protocol over them.  This module owns the link: it
-connects on demand, serialises commands, matches each write to the
-notification it provokes, and drops the link once things go quiet so the phone
-app can still reach the pump.
+The pump speaks Tuya's local protocol on port 6668 -- the same wire format
+the vendor app ends up using, minus the cloud round trip.  ``tinytuya``
+implements that protocol but is synchronous and not thread safe, so this
+module owns exactly one device object, serialises access to it behind a lock,
+and runs every call in the executor.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
-from collections.abc import Callable
+from typing import Any
 
-from bleak import BleakError
-from bleak.backends.device import BLEDevice
-from bleak_retry_connector import (
-    BleakClientWithServiceCache,
-    BleakNotFoundError,
-    establish_connection,
+import tinytuya
+from homeassistant.core import HomeAssistant
+
+from .const import CONNECTION_TIMEOUT, PROTOCOL_VERSIONS
+from .protocol import (
+    DP_CUR_MODE,
+    DP_CUR_POWER,
+    DP_FEED,
+    DP_GET_MODE,
+    DP_SWITCH,
+    encode_get_mode,
 )
-
-from .const import COMMAND_TIMEOUT, DISCONNECT_DELAY
-from .protocol import DeviceProfile, FrameError, PumpState, WaveMode, ZksjError
 
 _LOGGER = logging.getLogger(__name__)
 
+# DPs worth having before the first entity renders.
+_ESSENTIAL_DPS = (DP_SWITCH, DP_CUR_POWER, DP_CUR_MODE)
 
-class ZksjConnectionError(ZksjError):
-    """The pump could not be reached."""
+
+class ZksjConnectionError(Exception):
+    """The pump could not be reached, or rejected our credentials."""
 
 
-class ZksjPump:
-    """One pump, and the connection to it."""
+class ZksjDevice:
+    """One pump, and the local socket to it."""
 
-    def __init__(self, ble_device: BLEDevice, profile: DeviceProfile) -> None:
-        self._ble_device = ble_device
-        self._profile = profile
-        self._state = PumpState()
-
-        self._client: BleakClientWithServiceCache | None = None
-        self._connect_lock = asyncio.Lock()
-        self._command_lock = asyncio.Lock()
-        self._disconnect_timer: asyncio.TimerHandle | None = None
-        self._reply: asyncio.Future[bytes] | None = None
-        self._listeners: list[Callable[[PumpState], None]] = []
-        self._expected_disconnect = False
-
-    @property
-    def address(self) -> str:
-        return self._ble_device.address
-
-    @property
-    def name(self) -> str:
-        return self._ble_device.name or self._ble_device.address
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        *,
+        host: str,
+        device_id: str,
+        local_key: str,
+        version: str,
+    ) -> None:
+        self._hass = hass
+        self.host = host
+        self.device_id = device_id
+        self._local_key = local_key
+        self._version = version
+        self._device: tinytuya.Device | None = None
 
     @property
-    def profile(self) -> DeviceProfile:
-        return self._profile
+    def version(self) -> str:
+        return self._version
 
-    @property
-    def state(self) -> PumpState:
-        return self._state
+    def _build(self) -> tinytuya.Device:
+        device = tinytuya.Device(
+            self.device_id,
+            address=self.host,
+            local_key=self._local_key,
+            version=float(self._version),
+            connection_timeout=CONNECTION_TIMEOUT,
+        )
+        # One long-lived socket: the pump is slow to accept new connections,
+        # and reconnecting per command turns a slider drag into a stutter.
+        device.set_socketPersistent(True)
+        device.set_socketRetryLimit(1)
+        return device
 
-    def set_ble_device(self, ble_device: BLEDevice) -> None:
-        """Adopt a fresher BLEDevice seen by Home Assistant's BLE stack."""
-        self._ble_device = ble_device
+    def _ensure(self) -> tinytuya.Device:
+        if self._device is None:
+            self._device = self._build()
+        return self._device
 
-    def add_listener(self, callback: Callable[[PumpState], None]) -> Callable[[], None]:
-        """Subscribe to state changes.  Returns an unsubscribe callable."""
-        self._listeners.append(callback)
+    # -- executor-side calls ---------------------------------------------
 
-        def _remove() -> None:
-            if callback in self._listeners:
-                self._listeners.remove(callback)
+    def _status(self) -> dict[str, Any]:
+        device = self._ensure()
+        result = device.status()
+        return _unwrap(result)
 
-        return _remove
+    def _set(self, dp: str, value: Any) -> dict[str, Any]:
+        device = self._ensure()
+        result = device.set_value(dp, value)
+        # A set can come back empty; that is not an error, just no echo.
+        if not result:
+            return {}
+        return _unwrap(result, allow_empty=True)
 
-    # -- commands ---------------------------------------------------------
-
-    async def async_refresh(self) -> PumpState:
-        await self._command(self._profile.codec.encode_query())
-        return self._state
-
-    async def async_set_power(self, on: bool) -> None:
-        await self._command(self._profile.codec.encode_power(on))
-
-    async def async_set_speed(self, level: int) -> None:
-        low, high = self._profile.min_speed, self._profile.max_speed
-        if not low <= level <= high:
-            raise ValueError(f"speed {level} outside {low}-{high}")
-        await self._command(self._profile.codec.encode_speed(level))
-
-    async def async_set_mode(self, key: str) -> None:
-        mode: WaveMode = self._profile.mode_by_key(key)
-        await self._command(self._profile.codec.encode_mode(mode))
-
-    async def async_set_feed(self, on: bool) -> None:
-        await self._command(self._profile.codec.encode_feed(on))
-
-    async def async_disconnect(self) -> None:
-        """Tear the link down for good, e.g. when the entry unloads."""
-        self._cancel_disconnect_timer()
-        self._expected_disconnect = True
-        client, self._client = self._client, None
-        if client is not None:
+    def _close(self) -> None:
+        if self._device is not None:
             try:
-                await client.disconnect()
-            except BleakError as err:  # pragma: no cover - best effort
-                _LOGGER.debug("%s: error while disconnecting: %s", self.name, err)
+                self._device.close()
+            except OSError as err:  # pragma: no cover - best effort
+                _LOGGER.debug("%s: error closing socket: %s", self.host, err)
+            self._device = None
 
-    # -- plumbing ---------------------------------------------------------
+    # -- async surface ----------------------------------------------------
 
-    async def _command(self, frame: bytes) -> None:
-        """Send one frame and wait for the pump to answer."""
-        async with self._command_lock:
-            client = await self._ensure_connected()
-            loop = asyncio.get_running_loop()
-            self._reply = loop.create_future()
+    async def async_status(self) -> dict[str, Any]:
+        """Read every data point the pump will volunteer."""
+        return await self._hass.async_add_executor_job(self._status)
+
+    async def async_set(self, dp: str, value: Any) -> dict[str, Any]:
+        """Write one data point."""
+        return await self._hass.async_add_executor_job(self._set, dp, value)
+
+    async def async_request_dp(self, dp: str) -> dict[str, Any]:
+        """Ask the pump to report a DP it did not include in its status.
+
+        The program (DP 101) in particular is often absent from a plain
+        status read; DP 106 is the vendor's own way of asking for it.
+        """
+        return await self.async_set(DP_GET_MODE, encode_get_mode(int(dp)))
+
+    async def async_close(self) -> None:
+        """Release the socket."""
+        await self._hass.async_add_executor_job(self._close)
+
+    async def async_refresh_all(self) -> dict[str, Any]:
+        """Status, plus a nudge for anything important the pump left out."""
+        dps = await self.async_status()
+        missing = [dp for dp in _ESSENTIAL_DPS if dp not in dps]
+        for dp in missing:
             try:
-                await client.write_gatt_char(
-                    self._profile.write_uuid, frame, response=False
-                )
-                await asyncio.wait_for(self._reply, COMMAND_TIMEOUT)
-            except TimeoutError as err:
-                # A pump that stops answering is usually a half-open link;
-                # drop it so the next command reconnects instead of timing
-                # out again.
-                await self._drop_connection()
-                raise ZksjConnectionError(
-                    f"{self.name} did not answer within {COMMAND_TIMEOUT}s"
-                ) from err
-            except BleakError as err:
-                await self._drop_connection()
-                raise ZksjConnectionError(f"{self.name}: {err}") from err
-            finally:
-                self._reply = None
-            self._schedule_disconnect()
+                extra = await self.async_request_dp(dp)
+            except ZksjConnectionError:
+                raise
+            except Exception as err:  # noqa: BLE001 - tinytuya raises broadly
+                _LOGGER.debug("%s: DP %s request failed: %s", self.host, dp, err)
+                continue
+            dps.update(extra)
+        if DP_FEED in dps:
+            _LOGGER.debug("%s: feed DP present: %s", self.host, dps[DP_FEED])
+        return dps
 
-    async def _ensure_connected(self) -> BleakClientWithServiceCache:
-        if self._client is not None and self._client.is_connected:
-            self._cancel_disconnect_timer()
-            return self._client
 
-        async with self._connect_lock:
-            # Another command may have connected while we waited.
-            if self._client is not None and self._client.is_connected:
-                return self._client
+def _unwrap(result: Any, *, allow_empty: bool = False) -> dict[str, Any]:
+    """Turn a tinytuya reply into a DP mapping, or raise.
 
-            _LOGGER.debug("%s: connecting", self.name)
-            self._expected_disconnect = False
-            try:
-                client = await establish_connection(
-                    BleakClientWithServiceCache,
-                    self._ble_device,
-                    self.name,
-                    self._on_disconnected,
-                    use_services_cache=True,
-                    ble_device_callback=lambda: self._ble_device,
-                )
-                await client.start_notify(
-                    self._profile.notify_uuid, self._on_notification
-                )
-            except BleakNotFoundError as err:
-                raise ZksjConnectionError(
-                    f"{self.name} was not found; is it in range and in app mode?"
-                ) from err
-            except BleakError as err:
-                raise ZksjConnectionError(f"{self.name}: {err}") from err
+    tinytuya reports failures in-band as a dict with an ``Error`` key rather
+    than by raising, so an unchecked call silently looks like an empty pump.
+    """
+    if not isinstance(result, dict):
+        raise ZksjConnectionError(f"unexpected reply from pump: {result!r}")
 
-            self._client = client
-            return client
-
-    def _on_notification(self, _sender: int, data: bytearray) -> None:
-        payload = bytes(data)
-        try:
-            state = self._profile.codec.decode(payload, self._state)
-        except FrameError as err:
-            _LOGGER.debug("%s: ignoring frame %s: %s", self.name, payload.hex(), err)
-            return
-
-        self._state = state
-        if self._reply is not None and not self._reply.done():
-            self._reply.set_result(payload)
-        for listener in list(self._listeners):
-            listener(state)
-
-    def _on_disconnected(self, _client: BleakClientWithServiceCache) -> None:
-        self._client = None
-        if self._reply is not None and not self._reply.done():
-            self._reply.set_exception(
-                ZksjConnectionError(f"{self.name} disconnected mid-command")
-            )
-        if self._expected_disconnect:
-            _LOGGER.debug("%s: disconnected", self.name)
-        else:
-            _LOGGER.debug("%s: unexpectedly disconnected", self.name)
-
-    async def _drop_connection(self) -> None:
-        self._expected_disconnect = True
-        client, self._client = self._client, None
-        if client is not None:
-            try:
-                await client.disconnect()
-            except BleakError:  # pragma: no cover - best effort
-                pass
-
-    def _schedule_disconnect(self) -> None:
-        self._cancel_disconnect_timer()
-        loop = asyncio.get_running_loop()
-        self._disconnect_timer = loop.call_later(
-            DISCONNECT_DELAY, lambda: asyncio.ensure_future(self._idle_disconnect())
+    if "Error" in result:
+        error = result.get("Error")
+        code = result.get("Err")
+        payload = result.get("Payload")
+        raise ZksjConnectionError(
+            f"{error} (code {code})" + (f": {payload}" if payload else "")
         )
 
-    def _cancel_disconnect_timer(self) -> None:
-        if self._disconnect_timer is not None:
-            self._disconnect_timer.cancel()
-            self._disconnect_timer = None
+    dps = result.get("dps")
+    if dps is None:
+        if allow_empty:
+            return {}
+        raise ZksjConnectionError(f"pump replied without data points: {result!r}")
+    return dict(dps)
 
-    async def _idle_disconnect(self) -> None:
-        self._disconnect_timer = None
-        if self._command_lock.locked():
-            # A command started while the timer was firing; it will re-arm.
-            return
-        _LOGGER.debug("%s: idle, releasing the link", self.name)
-        await self._drop_connection()
+
+async def async_probe(
+    hass: HomeAssistant, *, host: str, device_id: str, local_key: str
+) -> tuple[str, dict[str, Any]]:
+    """Find which protocol version the pump answers on.
+
+    Tuya firmware picks a version per product and never negotiates, so the
+    only way to learn it is to try.  Returns the version and the first
+    successful status.
+    """
+    last_error: Exception | None = None
+    for version in PROTOCOL_VERSIONS:
+        device = ZksjDevice(
+            hass, host=host, device_id=device_id, local_key=local_key, version=version
+        )
+        try:
+            dps = await device.async_status()
+        except Exception as err:  # noqa: BLE001 - tinytuya raises broadly
+            last_error = err
+            _LOGGER.debug("%s: protocol %s did not answer: %s", host, version, err)
+            continue
+        finally:
+            await device.async_close()
+        if dps:
+            return version, dps
+
+    raise ZksjConnectionError(
+        f"No Tuya protocol version got a reply from {host}. "
+        "Check the IP, device id and local key."
+    ) from last_error

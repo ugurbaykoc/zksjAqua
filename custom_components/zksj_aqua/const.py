@@ -6,20 +6,29 @@ from typing import Final
 
 DOMAIN: Final = "zksj_aqua"
 
-CONF_PROFILE: Final = "profile"
+CONF_DEVICE_ID: Final = "device_id"
+CONF_LOCAL_KEY: Final = "local_key"
+CONF_PROTOCOL_VERSION: Final = "protocol_version"
 
 MANUFACTURER: Final = "ZKSJ (Zhongke)"
+MODEL: Final = "Smart Wave Pump"
 
-# The pump drops the link if we sit idle on it, and holding a connection open
-# blocks the phone app from pairing.  We connect on demand, run the command,
-# then keep the link warm for a short grace period so that a burst of changes
-# from the UI does not pay the connect cost every time.
-DISCONNECT_DELAY: Final = 30.0
+# Tuya product ids that the vendor app treats as wave pumps
+# (ProductHelper.SMART_WAVE_PID).
+SMART_WAVE_PRODUCT_IDS: Final = (
+    "icgtkgzy9gvaaixh",
+    "lwlbhsifgw7ec8nk",
+    "2twbidw8gmdxup5c",
+)
 
-# Nothing about the pump changes without us asking, but the connection itself
-# is unreliable enough that we re-read state periodically to notice a pump that
-# was power cycled or driven from its physical buttons.
-UPDATE_INTERVAL: Final = 60.0
+# Protocol versions tinytuya knows, newest first: a pump that answers on one
+# will not answer on the others, so probing in this order finds it fastest.
+PROTOCOL_VERSIONS: Final = ("3.5", "3.4", "3.3", "3.2", "3.1")
+DEFAULT_PROTOCOL_VERSION: Final = "3.3"
 
-# A single command round trip: write, then wait for the pump to notify back.
-COMMAND_TIMEOUT: Final = 10.0
+DEFAULT_UPDATE_INTERVAL: Final = 30.0
+CONNECTION_TIMEOUT: Final = 5.0
+
+# What the app sends when you tap feed: the pump runs its own countdown and
+# returns to the program on its own.
+DEFAULT_FEED_DURATION: Final = 600

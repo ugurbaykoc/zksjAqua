@@ -183,26 +183,40 @@ For a cleaner integration without `rest_command`, copy `custom_components/mobius
 
 ## Also in this repo: ZKSJ AQUA wave pump (`custom_components/zksj_aqua`)
 
-A second, unrelated device: the **ZKSJ / Zhongke DC wave pump** (Slim Pro
-series), normally driven by the vendor's `ZKSJ AQUA` Android app over BLE.
+A second, unrelated device: the **ZKSJ / Zhongke DC wave pump**, normally
+driven by the vendor's `ZKSJ AQUA` Android app.
 
-Unlike the Radion bridge above, this one is a proper Home Assistant custom
-component — HA talks to the pump directly, so it needs a Bluetooth adapter
-within range of the tank.
+Reverse engineered from that app (`com.zhongkesz.smartaquariumpro` 1.7.0).
+The pump turns out to be a **Tuya device** — it pairs over BLE, is handed
+Wi-Fi credentials, and from then on speaks Tuya's protocol and nothing else.
+This integration talks to it **locally**, over your own network, with no Tuya
+cloud at runtime and no official Tuya integration involved.
+
+### Why the Tuya integration doesn't work on this pump
+
+Nearly all of the pump's behaviour lives in **raw hex data points**
+(`101`–`108`). Generic Tuya integrations map booleans, enums and integers and
+pass raw DPs through untouched, so the pump shows up as an inert switch — or
+not at all. Decoding those blobs is what this component adds.
 
 | Entity | Platform |
 |---|---|
 | Power | `switch` |
-| Flow level (1–10) | `number` |
-| Wave mode | `select` |
-| Feed mode | `button` |
-| Pump speed / feed countdown | `sensor` |
+| Wave mode (constant / pulse / gyre / nutrient / tidal / random) | `select` |
+| Minimum & maximum flow, frequency, duty cycle | `number` |
+| Current flow, feed countdown | `sensor` |
+| Feed mode, stop feed, sync clock | `button` |
+| Whole-program editing | `zksj_aqua.set_program` service |
 
-**Status: the Home Assistant layer is complete; the BLE protocol profile is
-not yet extracted.** `protocol.PROFILES` is empty, so adding a pump aborts
-with `no_protocol` instead of writing guessed bytes to a pump running a live
-tank. See [`docs/PROTOCOL.md`](docs/PROTOCOL.md) for how a profile is derived
-from the vendor APK and what still has to be filled in.
+The wave and flow controls act on the segment running *right now*, so a daily
+schedule survives being nudged from a dashboard.
+
+**Setup and troubleshooting:** [`docs/ZKSJ.md`](docs/ZKSJ.md) — including how
+to read the pump's device id and local key, which you need once.
+**Wire format:** [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
+
+Run the codec tests with `python -m pytest tests/`; they need neither Home
+Assistant nor a pump.
 
 ---
 

@@ -1,36 +1,84 @@
 {
   "config": {
-    "flow_title": "{name}",
     "step": {
-      "confirm": {
-        "description": "{name} ({model}) eklensin mi?"
-      },
       "user": {
+        "title": "ZKSJ dalga pompası",
+        "description": "Pompa Tuya bulutuna çıkılmadan, yerel ağdan kontrol edilir. IP adresi, cihaz kimliği ve local key gerekir — bunları bir kez nasıl çıkaracağınız kurulum belgesinde anlatılıyor.",
         "data": {
-          "address": "Cihaz"
+          "host": "IP adresi",
+          "device_id": "Cihaz kimliği",
+          "local_key": "Local key",
+          "name": "Ad"
+        }
+      },
+      "reconfigure": {
+        "title": "Pompa bağlantısını güncelle",
+        "description": "Yeni bir adres girin veya yeniden eşleştirmeden sonra değişen local key'i değiştirin.",
+        "data": {
+          "host": "IP adresi",
+          "local_key": "Local key"
         }
       }
     },
+    "error": {
+      "cannot_connect": "Pompadan hiçbir Tuya protokol sürümünde yanıt gelmedi. IP adresini, cihaz kimliğini ve local key'i kontrol edin; ayrıca pompanın yerel bağlantısını açık tutan başka bir şey olmadığından emin olun.",
+      "unknown": "Pompaya erişilirken beklenmeyen bir hata oluştu."
+    },
     "abort": {
       "already_configured": "Bu pompa zaten kurulu.",
-      "no_devices_found": "ZKSJ pompası bulunamadı. Pompanın mod düğmesine Bluetooth LED'i yanıp sönene kadar basılı tutun ve tekrar deneyin.",
-      "no_protocol": "Bu sürümde çözülmüş bir ZKSJ protokol profili yok, bu yüzden pompa eklenemiyor.",
-      "unsupported_model": "Bu ZKSJ cihazı henüz desteklenmiyor."
+      "reconfigure_successful": "Pompa bağlantısı güncellendi."
     }
   },
   "entity": {
     "button": {
-      "feed": { "name": "Yemleme modu" }
+      "feed": { "name": "Yemleme modu" },
+      "stop_feed": { "name": "Yemleme modunu durdur" },
+      "sync_time": { "name": "Saati eşitle" }
     },
     "number": {
-      "speed": { "name": "Akış seviyesi" }
+      "min_power": { "name": "En düşük akış" },
+      "max_power": { "name": "En yüksek akış" },
+      "frequency": { "name": "Dalga frekansı" },
+      "pwm": { "name": "Görev döngüsü" }
     },
     "select": {
-      "wave_mode": { "name": "Dalga modu" }
+      "wave_mode": {
+        "name": "Dalga modu",
+        "state": {
+          "constant": "Sabit",
+          "pulse": "Pulse",
+          "gyre": "Gyre",
+          "nutrient_transport": "Besin taşıma",
+          "tidal_swell": "Gelgit",
+          "random": "Rastgele"
+        }
+      }
     },
     "sensor": {
-      "rpm": { "name": "Pompa devri" },
-      "feed_remaining": { "name": "Yemleme modu kalan süre" }
+      "current_power": { "name": "Anlık akış" },
+      "feed_countdown": { "name": "Yemleme modu kalan süre" },
+      "program_segments": { "name": "Program segmentleri" }
+    }
+  },
+  "services": {
+    "feed": {
+      "name": "Yemleme modu",
+      "description": "Yemleme için pompayı yavaşlatır. Geri sayımı pompa kendi yürütür ve süre bitince programına döner.",
+      "fields": {
+        "duration": { "name": "Süre", "description": "Yemleme modunun saniye cinsinden süresi." },
+        "power": { "name": "Akış", "description": "Yemleme modu boyunca tutulacak akış yüzdesi." }
+      }
+    },
+    "set_program": {
+      "name": "Programı ayarla",
+      "description": "Pompanın günlük programının tamamını verilen segment listesiyle değiştirir.",
+      "fields": {
+        "segments": { "name": "Segmentler", "description": "Her biri dalga tipi, başlangıç/bitiş saati, akış, frekans ve görev döngüsü içeren segmentler." }
+      }
+    },
+    "sync_time": {
+      "name": "Saati eşitle",
+      "description": "Home Assistant'ın yerel saatini pompaya yazar; böylece saate bağlı programlar doğru saatte çalışır."
     }
   }
 }
