@@ -3,7 +3,22 @@
     "step": {
       "user": {
         "title": "ZKSJ wave pump",
-        "description": "The pump is controlled locally, without the Tuya cloud. You need its IP address, device id and local key — see the setup guide for how to read those once.",
+        "description": "These are the Tuya devices broadcasting on your network. Pick your pump; you will only need to paste its local key.",
+        "data": {
+          "selection": "Device"
+        }
+      },
+      "key": {
+        "title": "Local key",
+        "description": "Found the pump at {host} (device id {device_id}). The local key is the one value that is not on the network — it lives in the Tuya account the pump was paired to. See the setup guide for how to read it.",
+        "data": {
+          "local_key": "Local key",
+          "name": "Name"
+        }
+      },
+      "manual": {
+        "title": "Enter the pump by hand",
+        "description": "No pump was found broadcasting, or you chose to type it in. Find the address with `python -m tinytuya scan`.",
         "data": {
           "host": "IP address",
           "device_id": "Device id",
@@ -21,7 +36,7 @@
       }
     },
     "error": {
-      "cannot_connect": "No reply from the pump on any Tuya protocol version. Check the IP address, device id and local key, and that nothing else holds the pump's local connection open.",
+      "cannot_connect": "No reply from the pump on any Tuya protocol version. Check the local key first — a wrong key looks exactly like this. Also make sure nothing else is holding the pump's local connection open.",
       "unknown": "Unexpected error while contacting the pump."
     },
     "abort": {
@@ -31,15 +46,29 @@
   },
   "entity": {
     "button": {
-      "feed": { "name": "Feed mode" },
-      "stop_feed": { "name": "Stop feed mode" },
-      "sync_time": { "name": "Sync clock" }
+      "feed": {
+        "name": "Feed mode"
+      },
+      "stop_feed": {
+        "name": "Stop feed mode"
+      },
+      "sync_time": {
+        "name": "Sync clock"
+      }
     },
     "number": {
-      "min_power": { "name": "Minimum flow" },
-      "max_power": { "name": "Maximum flow" },
-      "frequency": { "name": "Wave frequency" },
-      "pwm": { "name": "Duty cycle" }
+      "min_power": {
+        "name": "Minimum flow"
+      },
+      "max_power": {
+        "name": "Maximum flow"
+      },
+      "frequency": {
+        "name": "Wave frequency"
+      },
+      "pwm": {
+        "name": "Duty cycle"
+      }
     },
     "select": {
       "wave_mode": {
@@ -55,9 +84,15 @@
       }
     },
     "sensor": {
-      "current_power": { "name": "Current flow" },
-      "feed_countdown": { "name": "Feed mode remaining" },
-      "program_segments": { "name": "Program segments" }
+      "current_power": {
+        "name": "Current flow"
+      },
+      "feed_countdown": {
+        "name": "Feed mode remaining"
+      },
+      "program_segments": {
+        "name": "Program segments"
+      }
     }
   },
   "services": {
@@ -65,15 +100,24 @@
       "name": "Feed mode",
       "description": "Slows the pump for feeding. The pump runs the countdown itself and returns to its program.",
       "fields": {
-        "duration": { "name": "Duration", "description": "How long feed mode lasts, in seconds." },
-        "power": { "name": "Flow", "description": "Flow to hold during feed mode, as a percentage." }
+        "duration": {
+          "name": "Duration",
+          "description": "How long feed mode lasts, in seconds."
+        },
+        "power": {
+          "name": "Flow",
+          "description": "Flow to hold during feed mode, as a percentage."
+        }
       }
     },
     "set_program": {
       "name": "Set program",
       "description": "Replaces the pump's whole daily program with a list of segments.",
       "fields": {
-        "segments": { "name": "Segments", "description": "Segments, each with a wave type, a start and end time, and its flow, frequency and duty cycle." }
+        "segments": {
+          "name": "Segments",
+          "description": "Segments, each with a wave type, a start and end time, and its flow, frequency and duty cycle."
+        }
       }
     },
     "sync_time": {

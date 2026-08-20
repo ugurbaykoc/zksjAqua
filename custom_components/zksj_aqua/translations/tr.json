@@ -3,7 +3,22 @@
     "step": {
       "user": {
         "title": "ZKSJ dalga pompası",
-        "description": "Pompa Tuya bulutuna çıkılmadan, yerel ağdan kontrol edilir. IP adresi, cihaz kimliği ve local key gerekir — bunları bir kez nasıl çıkaracağınız kurulum belgesinde anlatılıyor.",
+        "description": "Ağınızda yayın yapan Tuya cihazları bunlar. Pompanızı seçin; sadece local key'ini yapıştırmanız yetecek.",
+        "data": {
+          "selection": "Cihaz"
+        }
+      },
+      "key": {
+        "title": "Local key",
+        "description": "Pompa {host} adresinde bulundu (cihaz kimliği {device_id}). Local key ağda bulunmayan tek değer — pompanın eşleştirildiği Tuya hesabında duruyor. Nasıl okunacağı kurulum belgesinde yazıyor.",
+        "data": {
+          "local_key": "Local key",
+          "name": "Ad"
+        }
+      },
+      "manual": {
+        "title": "Pompayı elle girin",
+        "description": "Yayın yapan pompa bulunamadı veya elle girmeyi seçtiniz. Adresi `python -m tinytuya scan` ile bulabilirsiniz.",
         "data": {
           "host": "IP adresi",
           "device_id": "Cihaz kimliği",
@@ -21,7 +36,7 @@
       }
     },
     "error": {
-      "cannot_connect": "Pompadan hiçbir Tuya protokol sürümünde yanıt gelmedi. IP adresini, cihaz kimliğini ve local key'i kontrol edin; ayrıca pompanın yerel bağlantısını açık tutan başka bir şey olmadığından emin olun.",
+      "cannot_connect": "Pompadan hiçbir Tuya protokol sürümünde yanıt gelmedi. Önce local key'i kontrol edin — yanlış anahtar tıpatıp böyle görünür. Ayrıca pompanın yerel bağlantısını tutan başka bir şey olmadığından emin olun.",
       "unknown": "Pompaya erişilirken beklenmeyen bir hata oluştu."
     },
     "abort": {
@@ -31,15 +46,29 @@
   },
   "entity": {
     "button": {
-      "feed": { "name": "Yemleme modu" },
-      "stop_feed": { "name": "Yemleme modunu durdur" },
-      "sync_time": { "name": "Saati eşitle" }
+      "feed": {
+        "name": "Yemleme modu"
+      },
+      "stop_feed": {
+        "name": "Yemleme modunu durdur"
+      },
+      "sync_time": {
+        "name": "Saati eşitle"
+      }
     },
     "number": {
-      "min_power": { "name": "En düşük akış" },
-      "max_power": { "name": "En yüksek akış" },
-      "frequency": { "name": "Dalga frekansı" },
-      "pwm": { "name": "Görev döngüsü" }
+      "min_power": {
+        "name": "En düşük akış"
+      },
+      "max_power": {
+        "name": "En yüksek akış"
+      },
+      "frequency": {
+        "name": "Dalga frekansı"
+      },
+      "pwm": {
+        "name": "Görev döngüsü"
+      }
     },
     "select": {
       "wave_mode": {
@@ -55,9 +84,15 @@
       }
     },
     "sensor": {
-      "current_power": { "name": "Anlık akış" },
-      "feed_countdown": { "name": "Yemleme modu kalan süre" },
-      "program_segments": { "name": "Program segmentleri" }
+      "current_power": {
+        "name": "Anlık akış"
+      },
+      "feed_countdown": {
+        "name": "Yemleme modu kalan süre"
+      },
+      "program_segments": {
+        "name": "Program segmentleri"
+      }
     }
   },
   "services": {
@@ -65,15 +100,24 @@
       "name": "Yemleme modu",
       "description": "Yemleme için pompayı yavaşlatır. Geri sayımı pompa kendi yürütür ve süre bitince programına döner.",
       "fields": {
-        "duration": { "name": "Süre", "description": "Yemleme modunun saniye cinsinden süresi." },
-        "power": { "name": "Akış", "description": "Yemleme modu boyunca tutulacak akış yüzdesi." }
+        "duration": {
+          "name": "Süre",
+          "description": "Yemleme modunun saniye cinsinden süresi."
+        },
+        "power": {
+          "name": "Akış",
+          "description": "Yemleme modu boyunca tutulacak akış yüzdesi."
+        }
       }
     },
     "set_program": {
       "name": "Programı ayarla",
       "description": "Pompanın günlük programının tamamını verilen segment listesiyle değiştirir.",
       "fields": {
-        "segments": { "name": "Segmentler", "description": "Her biri dalga tipi, başlangıç/bitiş saati, akış, frekans ve görev döngüsü içeren segmentler." }
+        "segments": {
+          "name": "Segmentler",
+          "description": "Her biri dalga tipi, başlangıç/bitiş saati, akış, frekans ve görev döngüsü içeren segmentler."
+        }
       }
     },
     "sync_time": {
