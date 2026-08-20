@@ -84,6 +84,23 @@ emulator running the ZKSJ app. Nothing is written and nothing is re-paired.
 > emulator you need an image with ARM translation (Android 11+ x86\_64
 > images have it), or Waydroid on ARM hardware.
 
+### Without rooting: patch the APK instead
+
+If you would rather not root, [objection](https://github.com/sensepost/objection)
+can inject Frida's gadget into the APK itself, so the same script runs on an
+ordinary phone:
+
+```bash
+objection patchapk -s ZKSJ_AQUA.apk
+# install the patched APK, open it, log in, then:
+frida -U Gadget -l tools/dump_local_keys.js
+```
+
+The patched app is signed with your own key rather than the vendor's, and
+Tuya's SDK carries a tamper-check path (`ICheckCallback`), so it may refuse
+to log in. Worth trying before rooting anything — it costs nothing but a few
+minutes, and if the login goes through, the dump works exactly the same.
+
 ### Alternative: move the pump to Smart Life
 
 If rooting or an emulator is not worth it, pair the pump into **Smart Life**

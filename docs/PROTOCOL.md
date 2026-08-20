@@ -135,13 +135,27 @@ So ZKSJ is the identity provider and Tuya is federated behind it. The first
 request is plain form-encoded HTTP with an MD5 password and reproduces
 easily.
 
-The Tuya half does not. `com.tuya.smart.security.jni.JNICLibrary` exposes
-`encryptPostData(requestId, postData)`, `genKey(requestId, token, bundleId)`,
-`getChKey(context, appKey)` and `computeDigest(bundleId, ...)`, all backed by
-`libjnimain.so`, alongside an `ICheckCallback` tamper-status path. Request
-bodies are encrypted, not just signed, and the keys are derived inside native
-code from the package name, an encrypted asset in the APK, and the app
-`Context`. Holding the app key and secret is not sufficient.
+The Tuya half does not, and it is worth being precise about why, because
+`EncryptApiParams` looks at first like an opt-in subclass used by a handful
+of sensitive endpoints.
+
+It is not the only path. `TuyaApiParams.getEncryptPostDataString()` -- on the
+*base* class, so on every request that carries a body -- AES-encrypts the
+post data with a key from
+`TuyaNetworkSecurity.getEncryptoKey(requestId, ecode)`, which lands in
+`JNICLibrary` and `libjnimain.so`. That native call needs the app `Context`;
+`TuyaNetworkSecurity.getContext()` goes as far as reflecting into
+`ActivityThread.currentActivityThread()` to find the Application when one was
+not handed to it. An `ICheckCallback` reports tamper status alongside.
+
+So the key material is derived inside native code from the running app's own
+identity. Holding the app key and secret is not sufficient: the request
+encryption is bound to the process, not to the credentials.
+
+One escape hatch exists in the code -- `TuyaSmartNetWork.mPacketCaptureEnabled`
+makes `getEncryptPostDataString()` return plaintext -- but flipping it means
+instrumenting the running app, at which point reading `DeviceBean.getLocalKey()`
+directly is simpler. See `tools/dump_local_keys.js`.
 
 The device id and local key are therefore obtained through Tuya's
 third-party-facing interfaces instead; see [ZKSJ.md](ZKSJ.md).
