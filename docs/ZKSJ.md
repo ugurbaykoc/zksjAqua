@@ -51,28 +51,40 @@ its local key. The protocol version is probed automatically.
 
 ## Getting the device id and local key
 
-These live in Tuya's cloud and have to be read out once. They do not change
-unless you re-pair the pump — if you do, run the flow's **Reconfigure** step
-and paste the new key.
+These two values are what let Home Assistant open a local connection to the
+pump. They are minted when the pump is paired and they do not change unless
+you pair it again — if you do, use the integration's **Reconfigure** step and
+paste the new key.
 
-1. Create a free account at [iot.tuya.com](https://iot.tuya.com/) and make a
-   Cloud project (data centre: whichever region your pump was paired in).
-2. In the project, open **Devices → Link App Account** and link the account
-   you use in the ZKSJ AQUA app, by scanning the QR code from the app's
-   profile screen.
-3. Your pump now appears under **Devices**, with its device id.
-4. Read the local key with `tinytuya`:
+You do **not** need a Tuya IoT developer account, a cloud project, or an
+Access ID and Secret.
 
-   ```bash
-   pip install tinytuya
-   python -m tinytuya wizard
-   ```
+### Recommended: QR login, no Tuya account
 
-   The wizard asks for the project's API key and secret and writes
-   `devices.json`, which contains each device's `id`, `key` (the local key)
-   and `ip`.
+[`tuya-local-key`](https://github.com/vineetchoudhary/tuya-local-key) logs in
+the same way a phone does — you scan a QR code from the app you already have
+— and prints every device with its id and local key.
 
-Once the integration is set up, nothing contacts Tuya again.
+1. In the ZKSJ AQUA (or Smart Life) app: **Me → Settings → Account and
+   Security → User Code**. Note the code.
+2. Run the tool and give it that user code. It prints a QR code in the
+   terminal and writes `tuya-login-qr.png` as a fallback.
+3. In the app, tap **+ → Scan**, point it at the QR code, and confirm the
+   login.
+4. It lists your devices. Copy the pump's `id` and `key`.
+
+The session is cached, so a later re-run does not repeat the scan.
+
+### Fallback: Tuya IoT portal
+
+If the QR login does not work for your region or app build, the older route
+still does: make a free Cloud project at [iot.tuya.com](https://iot.tuya.com/)
+in the data centre your pump was paired in, use **Devices → Link App Account**
+to link the app by QR, then run `python -m tinytuya wizard` with the project's
+API key and secret. It writes a `devices.json` holding each device's `id`,
+`key` and `ip`.
+
+Either way, once the integration is configured nothing contacts Tuya again.
 
 ### Finding the IP address
 
@@ -168,6 +180,34 @@ automation:
         target:
           entity_id: button.wave_pump_sync_clock
 ```
+
+## Going further: removing Tuya's firmware
+
+Everything above removes Tuya's *cloud*, its *app*, and its *account* from
+your setup. What it cannot remove is Tuya's **protocol** — that is the only
+language the pump's radio speaks, and no amount of software on the Home
+Assistant side changes it.
+
+Removing it for real means replacing the firmware on the pump's Wi-Fi module,
+with [tuya-cloudcutter](https://github.com/tuya-cloudcutter/tuya-cloudcutter)
+flashing ESPHome or OpenBeken over the air. Before considering it, three
+things are worth knowing:
+
+- **It probably does not buy you what it sounds like.** A pump like this is
+  almost certainly a *TuyaMCU* design: the Wi-Fi module is only a radio, and
+  the wave logic lives in a separate MCU that the radio talks to over UART —
+  using these same data points. Reflashing moves the protocol from Wi-Fi to a
+  serial link; it does not retire it. `protocol.py` stays just as necessary.
+- **It is one-way.** Cloudcutter replaces the device's keys. Tuya's app and
+  servers stop working for that pump, and the project documents no way back.
+- **It is narrow.** Only certain BK7231T/N and ESP modules are supported, only
+  on firmware versions with a known profile, and the tool needs a real Linux
+  machine with its own Wi-Fi adapter — not a VM.
+
+If you want to go this way, the first step is finding out what module is
+inside, which means opening the pump's controller. Worth doing only if
+cutting the last Tuya-shaped thing out matters more than the risk of ending
+up with a pump that neither Home Assistant nor the vendor app can reach.
 
 ## Scope
 

@@ -212,7 +212,7 @@ The wave and flow controls act on the segment running *right now*, so a daily
 schedule survives being nudged from a dashboard.
 
 **Setup and troubleshooting:** [`docs/ZKSJ.md`](docs/ZKSJ.md) — including how
-to read the pump's device id and local key, which you need once.
+to read the pump's device id and local key without a Tuya developer account.
 **Wire format:** [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
 
 Run the codec tests with `python -m pytest tests/`; they need neither Home
