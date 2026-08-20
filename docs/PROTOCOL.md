@@ -115,6 +115,37 @@ freq(2) | duration(4)`. Same byte-1 overloading as a segment.
   harmless for the value ranges involved (a start time never exceeds 86400,
   whose high byte is at most `0x01`), and the correct masking is used here.
 
+## The app's own login chain
+
+Worth recording, since it looks like a shortcut and is not one.
+
+`LoginP.java` signs in to ZKSJ's backend, not to Tuya:
+
+```
+POST https://api.szzksj.com/zhongke-aquarium-auth/cgi/authentication/login
+     <user>=..., psw=md5(password)
+  -> data.user.countryCode, data.iotJson.iot_username, data.iotJson.iot_password
+
+TuyaHomeSdk.init(ctx, appKey, appSecret)      # from AndroidManifest meta-data
+TuyaHomeSdk.getUserInstance()
+           .loginWithUid(countryCode, iot_username, iot_password)
+```
+
+So ZKSJ is the identity provider and Tuya is federated behind it. The first
+request is plain form-encoded HTTP with an MD5 password and reproduces
+easily.
+
+The Tuya half does not. `com.tuya.smart.security.jni.JNICLibrary` exposes
+`encryptPostData(requestId, postData)`, `genKey(requestId, token, bundleId)`,
+`getChKey(context, appKey)` and `computeDigest(bundleId, ...)`, all backed by
+`libjnimain.so`, alongside an `ICheckCallback` tamper-status path. Request
+bodies are encrypted, not just signed, and the keys are derived inside native
+code from the package name, an encrypted asset in the APK, and the app
+`Context`. Holding the app key and secret is not sufficient.
+
+The device id and local key are therefore obtained through Tuya's
+third-party-facing interfaces instead; see [ZKSJ.md](ZKSJ.md).
+
 ## Re-deriving this
 
 ```bash
