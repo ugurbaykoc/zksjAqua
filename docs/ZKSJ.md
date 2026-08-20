@@ -58,6 +58,10 @@ The app already has both — it needs them for LAN control — so the shortest
 route is to read them out of the app, which changes nothing about your
 setup. The pump stays paired to your ZKSJ account and the app keeps working.
 
+The pump speaks Tuya protocol 3.4, so there is no keyless shortcut: from
+3.2 onward every data point read is encrypted. Monitor-only mode exists
+because presence is the one thing left readable without the key.
+
 Note that you cannot get them by pulling the app's files. `allowBackup` is
 on, but the cache is written through `SecurityFile` and `libtuyammkv.so`,
 which encrypt it natively; the files come out unreadable. Reading the values

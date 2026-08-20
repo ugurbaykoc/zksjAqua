@@ -115,6 +115,23 @@ freq(2) | duration(4)`. Same byte-1 overloading as a segment.
   harmless for the value ranges involved (a start time never exceeds 86400,
   whose high byte is at most `0x01`), and the correct masking is used here.
 
+## Why the local key is unavoidable
+
+Confirmed against a real pump (product id `icgtkgzy9gvaaixh`, firmware 1.0.6):
+it speaks **Tuya protocol 3.4**.
+
+That closes the one loophole worth checking. Tuya 3.1 answers a `DP_QUERY`
+without credentials — tinytuya's own scanner notes it: *"v3.1 does not
+require a key for polling, but v3.2+ do"*. From 3.2 onward every data point
+read is AES-encrypted with the device's local key, so on a 3.4 pump there is
+no unencrypted status channel at all.
+
+What that leaves reachable without a key is the device's presence: it
+broadcasts its id, address and protocol version over UDP, and it accepts a
+TCP connection on port 6668. That is enough to tell whether the pump has
+power and is on the network, and it is the whole of the monitor-only mode.
+Run state, wave mode and flow all live behind the key.
+
 ## The app's own login chain
 
 Worth recording, since it looks like a shortcut and is not one.
