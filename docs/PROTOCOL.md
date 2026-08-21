@@ -132,6 +132,30 @@ TCP connection on port 6668. That is enough to tell whether the pump has
 power and is on the network, and it is the whole of the monitor-only mode.
 Run state, wave mode and flow all live behind the key.
 
+## Hex versus base64: what's on the wire
+
+`protocol.py` works in hex throughout, matching the vendor app's own DP
+beans (`Hex.toHexString` / `Hex.decode`). That is the app-level convention,
+not the wire format -- confirmed against a real pump.
+
+A DP 106 query sent with a hex payload is silently dropped; the identical
+bytes sent as base64 get answered immediately, and the pump's own DP 101
+push comes back base64-encoded too. Tuya's SDK re-encodes hex to base64
+before anything reaches the socket; tinytuya talks the socket directly, so
+that translation has to happen on our side. `to_wire()` / `from_wire()` in
+`protocol.py` are the only two functions that know this -- everything else,
+including all the encode/decode functions above and their tests, stays in
+hex. `device.py` calls them at the tinytuya boundary and nowhere else.
+
+Also confirmed live: a freshly re-paired pump reports DP 101 as 120 bytes
+(10 segments) of all zero. Re-pairing clears the program; a segment count
+or a duty cycle is not owed to us by the pump until something writes one.
+
+DP 102 (`cur_power`) has not answered a DP 106 request in testing, hex or
+base64, while the identical mechanism works for DP 101. Whether it simply
+is not queryable on demand -- only pushed when the pump's output actually
+changes -- is not yet confirmed either way.
+
 ## The app's own login chain
 
 Worth recording, since it looks like a shortcut and is not one.

@@ -8,6 +8,7 @@ without Home Assistant installed.
 
 from __future__ import annotations
 
+import base64
 import importlib.util
 import sys
 from pathlib import Path
@@ -247,3 +248,15 @@ class TestWireEncoding:
         assert protocol.from_wire(protocol.DP_CUR_MODE, garbage) == garbage
         with pytest.raises(ZksjProtocolError):
             protocol.decode_program(protocol.from_wire(protocol.DP_CUR_MODE, garbage))
+
+    def test_real_pump_response_decodes_to_a_cleared_program(self):
+        # Confirmed live: a freshly re-paired pump reports DP 101 as 120
+        # bytes (10 segments) of all zero -- re-pairing clears the program,
+        # nobody has configured a wave pattern via the app yet.
+        wire_value = base64.b64encode(bytes(120)).decode()
+        hex_value = protocol.from_wire(protocol.DP_CUR_MODE, wire_value)
+        segments = protocol.decode_program(hex_value)
+        assert len(segments) == 10
+        assert all(s.type == protocol.WaveType.CONSTANT for s in segments)
+        assert all(s.min_power == 0 and s.max_power == 0 for s in segments)
+        assert all(s.start_time == 0 and s.end_time == 0 for s in segments)
