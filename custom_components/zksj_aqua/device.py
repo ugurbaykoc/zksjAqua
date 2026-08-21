@@ -25,6 +25,8 @@ from .protocol import (
     DP_GET_MODE,
     DP_SWITCH,
     encode_get_mode,
+    from_wire,
+    to_wire,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -89,15 +91,15 @@ class ZksjDevice:
     def _status(self) -> dict[str, Any]:
         device = self._ensure()
         result = device.status()
-        return _unwrap(result)
+        return _translate(_unwrap(result))
 
     def _set(self, dp: str, value: Any) -> dict[str, Any]:
         device = self._ensure()
-        result = device.set_value(dp, value)
+        result = device.set_value(dp, to_wire(dp, value))
         # A set can come back empty; that is not an error, just no echo.
         if not result:
             return {}
-        return _unwrap(result, allow_empty=True)
+        return _translate(_unwrap(result, allow_empty=True))
 
     def _close(self) -> None:
         if self._device is not None:
@@ -168,6 +170,11 @@ class ZksjDevice:
         if DP_FEED in dps:
             _LOGGER.debug("%s: feed DP present: %s", self.host, dps[DP_FEED])
         return dps
+
+
+def _translate(dps: dict[str, Any]) -> dict[str, Any]:
+    """Every value in a reply, translated from the wire's base64 to hex."""
+    return {dp: from_wire(dp, value) for dp, value in dps.items()}
 
 
 def _unwrap(result: Any, *, allow_empty: bool = False) -> dict[str, Any]:

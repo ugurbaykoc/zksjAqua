@@ -225,3 +225,25 @@ class TestSimpleDataPoints:
         assert raw[0] == 1
         assert raw[2] == 50 + 128
         assert int.from_bytes(raw[7:11], "big") == 15
+
+
+class TestWireEncoding:
+    """Confirmed against a real pump: DP 106 sent as hex is silently dropped;
+    the identical bytes sent as base64 get answered, and DP 101 comes back
+    base64-encoded too. protocol.py's own contract stays hex throughout --
+    these two functions are the only place that knows about base64."""
+
+    def test_raw_dp_hex_becomes_base64_for_the_wire(self):
+        # The exact query this integration sends for DP 101, and the exact
+        # base64 tinytuya must put on the wire for the pump to answer it.
+        assert protocol.to_wire(protocol.DP_GET_MODE, "000065") == "AABl"
+
+    def test_non_raw_dp_passes_through_untouched(self):
+        assert protocol.to_wire(protocol.DP_SWITCH, True) is True
+
+
+    def test_malformed_wire_value_passes_through_for_the_decoder_to_reject(self):
+        garbage = "not valid base64!!"
+        assert protocol.from_wire(protocol.DP_CUR_MODE, garbage) == garbage
+        with pytest.raises(ZksjProtocolError):
+            protocol.decode_program(protocol.from_wire(protocol.DP_CUR_MODE, garbage))

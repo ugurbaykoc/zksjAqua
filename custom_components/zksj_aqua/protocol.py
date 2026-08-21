@@ -30,9 +30,11 @@ DP   Name            R/W    Payload
 
 from __future__ import annotations
 
+import base64
+import binascii
 from dataclasses import dataclass
 from enum import IntEnum
-from typing import Final
+from typing import Any, Final
 
 DP_CUR_MODE: Final = "101"
 DP_CUR_POWER: Final = "102"
@@ -331,3 +333,40 @@ def replace_segment(
     updated = list(segments)
     updated[index] = replacement
     return updated
+
+
+# --- wire encoding -------------------------------------------------------
+#
+# Everything above works in hex, matching how the vendor app's own DP beans
+# represent a raw payload (Hex.toHexString / Hex.decode). That is an
+# app-level convention, though, not the wire format: Tuya's SDK re-encodes
+# it before the payload ever reaches the socket. tinytuya talks the socket
+# directly, and a real pump settles the question -- a hex payload for DP 106
+# is silently dropped; the identical bytes sent as base64 get answered.
+
+RAW_DPS: Final = frozenset(
+    {DP_CUR_MODE, DP_CUR_POWER, DP_FEED, DP_PREVIEW, DP_WAVE_ACTION, DP_GET_MODE, DP_SYNC_TIME}
+)
+
+
+def to_wire(dp: str, value: Any) -> Any:
+    """This module's hex representation of a raw DP, as the wire wants it."""
+    if dp in RAW_DPS and isinstance(value, str):
+        return base64.b64encode(bytes.fromhex(value)).decode()
+    return value
+
+
+def from_wire(dp: str, value: Any) -> Any:
+    """The wire's base64 for a raw DP, as this module's codec expects it.
+
+    A malformed payload is passed through rather than raised here: decode_*
+    already rejects bad hex with a clear ZksjProtocolError, and that is a
+    better place for a corrupt payload to surface than a silent crash in
+    the transport layer.
+    """
+    if dp in RAW_DPS and isinstance(value, str):
+        try:
+            return base64.b64decode(value).hex()
+        except (ValueError, binascii.Error):
+            return value
+    return value
