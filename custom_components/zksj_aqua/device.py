@@ -20,7 +20,6 @@ from homeassistant.core import HomeAssistant
 from .const import CONNECTION_TIMEOUT, PROTOCOL_VERSIONS, TUYA_LOCAL_PORT
 from .protocol import (
     DP_CUR_MODE,
-    DP_CUR_POWER,
     DP_FEED,
     DP_GET_MODE,
     DP_SWITCH,
@@ -31,8 +30,13 @@ from .protocol import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# DPs worth having before the first entity renders.
-_ESSENTIAL_DPS = (DP_SWITCH, DP_CUR_POWER, DP_CUR_MODE)
+# DPs worth having before the first entity renders. DP_CUR_POWER (102) is
+# deliberately not here: confirmed unreachable on this pump, idle or
+# running -- five passive polls and an explicit query all came back
+# without it, the query even getting DP 101 back instead. Asking every
+# refresh for something that has never once answered is a wasted
+# round trip, not a retry worth making.
+_ESSENTIAL_DPS = (DP_SWITCH, DP_CUR_MODE)
 
 
 class ZksjConnectionError(Exception):

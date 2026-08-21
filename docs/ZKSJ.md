@@ -24,7 +24,6 @@ inert under them. See [PROTOCOL.md](PROTOCOL.md).
 | `number` — Minimum / Maximum flow | Flow range, in percent |
 | `number` — Wave frequency | Pulse and gyre only; the slider re-scales per waveform |
 | `number` — Duty cycle | Pulse and gyre only |
-| `sensor` — Current flow | What the pump reports it is doing right now |
 | `sensor` — Feed mode remaining | Counts down while feed mode runs |
 | `button` — Feed mode / Stop feed mode | |
 | `button` — Sync clock | Pushes local time so timed programs run on time |

@@ -5,12 +5,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from homeassistant.components.sensor import (
-    SensorEntity,
-    SensorEntityDescription,
-    SensorStateClass,
-)
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfTime
+from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
+from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
@@ -26,13 +22,6 @@ class ZksjSensorDescription(SensorEntityDescription):
 
 
 SENSORS: tuple[ZksjSensorDescription, ...] = (
-    ZksjSensorDescription(
-        key="current_power",
-        translation_key="current_power",
-        native_unit_of_measurement=PERCENTAGE,
-        state_class=SensorStateClass.MEASUREMENT,
-        value_fn=lambda state: state.power,
-    ),
     ZksjSensorDescription(
         key="feed_countdown",
         translation_key="feed_countdown",

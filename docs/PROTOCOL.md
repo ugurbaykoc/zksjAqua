@@ -157,10 +157,13 @@ Also confirmed live: a freshly re-paired pump reports DP 101 as 120 bytes
 (10 segments) of all zero. Re-pairing clears the program; a segment count
 or a duty cycle is not owed to us by the pump until something writes one.
 
-DP 102 (`cur_power`) has not answered a DP 106 request in testing, hex or
-base64, while the identical mechanism works for DP 101. Whether it simply
-is not queryable on demand -- only pushed when the pump's output actually
-changes -- is not yet confirmed either way.
+DP 102 (`cur_power`) is confirmed unreachable on this pump. Tested with the
+pump idle (all-zero program) and running (60% constant, actually
+circulating): five passive `status()` polls three seconds apart showed
+nothing but DP 108, and an explicit DP 106 query for 102 didn't return 102
+at all -- the pump answered with DP 101 instead, as if the query target
+were ignored. There is no live path to this value on this hardware; the
+integration does not poll for it, and no `current_power` entity exists.
 
 ## The app's own login chain
 

@@ -84,9 +84,6 @@
       }
     },
     "sensor": {
-      "current_power": {
-        "name": "Anlık akış"
-      },
       "feed_countdown": {
         "name": "Yemleme modu kalan süre"
       },

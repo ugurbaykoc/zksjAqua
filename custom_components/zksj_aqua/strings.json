@@ -84,9 +84,6 @@
       }
     },
     "sensor": {
-      "current_power": {
-        "name": "Current flow"
-      },
       "feed_countdown": {
         "name": "Feed mode remaining"
       },
