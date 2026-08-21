@@ -21,6 +21,7 @@ from .protocol import (
     DP_FEED,
     DP_SWITCH,
     DP_SYNC_TIME,
+    SECONDS_PER_DAY,
     FeedState,
     WaveSegment,
     WaveType,
@@ -205,7 +206,23 @@ class ZksjCoordinator(DataUpdateCoordinator[ZksjState]):
                 "nothing to change."
             )
         index = active_segment_index(state.program, self.seconds_of_day)
-        program = replace_segment(state.program, index, edit(state.program[index]))
+        active = state.program[index]
+        if active.start_time == active.end_time:
+            # A zero-length window is what a freshly cleared program looks
+            # like on this pump -- not a real schedule slot. Editing it
+            # should claim the whole day; writing back a slice that spans
+            # nothing is what a real pump rejected with a garbled reply.
+            active = WaveSegment(
+                type=active.type,
+                identity=active.identity,
+                min_power=active.min_power,
+                max_power=active.max_power,
+                freq=active.freq,
+                pwm=active.pwm,
+                start_time=0,
+                end_time=SECONDS_PER_DAY,
+            )
+        program = replace_segment(state.program, index, edit(active))
         await self._write(DP_CUR_MODE, encode_program(program))
 
     async def _write(self, dp: str, value: Any) -> None:
