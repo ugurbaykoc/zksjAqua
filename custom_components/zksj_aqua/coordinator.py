@@ -93,8 +93,16 @@ class ZksjCoordinator(DataUpdateCoordinator[ZksjState]):
             reachable = await self.device.async_is_reachable()
             return ZksjState(reachable=reachable)
 
+        need: tuple[str, ...] = ()
+        if self.data is None or not self.data.program:
+            # The program changes only when we write it, so once a poll
+            # has it there is nothing to gain from asking again -- only
+            # another round trip for a link that already drops the odd
+            # packet.
+            need = (DP_CUR_MODE,)
+
         try:
-            dps = await self.device.async_refresh_all()
+            dps = await self.device.async_refresh_all(need=need)
         except ZksjConnectionError as err:
             raise UpdateFailed(str(err)) from err
         except Exception as err:  # noqa: BLE001 - tinytuya raises broadly
@@ -227,12 +235,19 @@ class ZksjCoordinator(DataUpdateCoordinator[ZksjState]):
 
     async def _write(self, dp: str, value: Any) -> None:
         try:
-            await self.device.async_set(dp, value)
+            result = await self.device.async_set(dp, value)
         except ZksjConnectionError as err:
             raise HomeAssistantError(str(err)) from err
         except Exception as err:  # noqa: BLE001 - tinytuya raises broadly
             raise HomeAssistantError(f"{self.device.host}: {err}") from err
-        await self.async_request_refresh()
+        if result:
+            # The pump often echoes the new value straight back in its ack.
+            # Use it now rather than waiting on the next poll -- which, by
+            # design, no longer re-requests DP 101 on its own once it has
+            # been seen, so nothing would otherwise refresh it.
+            self.async_set_updated_data(self._parse(result))
+        else:
+            await self.async_request_refresh()
 
     async def async_shutdown(self) -> None:
         await super().async_shutdown()

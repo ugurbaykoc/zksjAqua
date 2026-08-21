@@ -132,6 +132,27 @@ TCP connection on port 6668. That is enough to tell whether the pump has
 power and is on the network, and it is the whole of the monitor-only mode.
 Run state, wave mode and flow all live behind the key.
 
+## Polling backed off after a weak-signal false alarm
+
+A pump with a weak Wi-Fi link (see ZKSJ.md) logged repeated
+`Unexpected Payload from Device (code 904)` errors, each one recovering on
+its own by the next 30-second poll -- a dropped or corrupted packet, not a
+persistent fault.
+
+The coordinator was making this worse than it had to be. `_ESSENTIAL_DPS`
+had it actively re-requesting DP 101 (`cur_mode`) on *every* poll, forever,
+because a plain `status()` never volunteers it. That is a second round trip
+on every single cycle for a value that only changes when this integration
+writes it -- twice the exposure to a link that already drops the odd
+packet, for no benefit once the program has been read once.
+
+The active request now happens only when the coordinator has never
+successfully gotten a program (first refresh, or after `async_status()`
+came back completely empty). A write's own echo is used to update state
+immediately instead of triggering a fresh poll that would no longer bother
+re-requesting DP 101 -- without this, the fix above would have left the UI
+stale after every edit.
+
 ## DP 101 takes effect immediately
 
 Confirmed live: writing DP 101 (`cur_mode`) is not a "save for later"

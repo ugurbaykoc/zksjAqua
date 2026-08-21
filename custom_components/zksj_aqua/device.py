@@ -19,10 +19,8 @@ from homeassistant.core import HomeAssistant
 
 from .const import CONNECTION_TIMEOUT, PROTOCOL_VERSIONS, TUYA_LOCAL_PORT
 from .protocol import (
-    DP_CUR_MODE,
     DP_FEED,
     DP_GET_MODE,
-    DP_SWITCH,
     encode_get_mode,
     from_wire,
     to_wire,
@@ -30,13 +28,7 @@ from .protocol import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# DPs worth having before the first entity renders. DP_CUR_POWER (102) is
-# deliberately not here: confirmed unreachable on this pump, idle or
-# running -- five passive polls and an explicit query all came back
-# without it, the query even getting DP 101 back instead. Asking every
-# refresh for something that has never once answered is a wasted
-# round trip, not a retry worth making.
-_ESSENTIAL_DPS = (DP_SWITCH, DP_CUR_MODE)
+
 
 
 class ZksjConnectionError(Exception):
@@ -158,11 +150,20 @@ class ZksjDevice:
         """Release the socket."""
         await self._hass.async_add_executor_job(self._close)
 
-    async def async_refresh_all(self) -> dict[str, Any]:
-        """Status, plus a nudge for anything important the pump left out."""
+    async def async_refresh_all(self, *, need: tuple[str, ...] = ()) -> dict[str, Any]:
+        """Status, plus an active nudge for any DP listed in ``need``.
+
+        A plain status() read is one round trip; each DP in ``need`` that
+        status() left out costs another. On a pump with a weak link, every
+        extra round trip is another chance for a dropped or garbled packet,
+        so callers should only ask for what they do not already have --
+        DP 101 in particular never changes except when this integration
+        writes it, so it is worth requesting once, not every poll.
+        """
         dps = await self.async_status()
-        missing = [dp for dp in _ESSENTIAL_DPS if dp not in dps]
-        for dp in missing:
+        for dp in need:
+            if dp in dps:
+                continue
             try:
                 extra = await self.async_request_dp(dp)
             except ZksjConnectionError:
