@@ -132,6 +132,12 @@ TCP connection on port 6668. That is enough to tell whether the pump has
 power and is on the network, and it is the whole of the monitor-only mode.
 Run state, wave mode and flow all live behind the key.
 
+## DP 101 takes effect immediately
+
+Confirmed live: writing DP 101 (`cur_mode`) is not a "save for later"
+schedule edit -- the pump acted on it right away. DP 105 (`wave_action`),
+which the app also writes from its live-control screens, was never needed.
+
 ## Hex versus base64: what's on the wire
 
 `protocol.py` works in hex throughout, matching the vendor app's own DP
