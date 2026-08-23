@@ -121,6 +121,28 @@ updates for it go with it.
 
 Either way, once the integration is configured nothing contacts Tuya again.
 
+**In practice, this did not work for the wave pump.** Two full cycles of
+removing it from the ZKSJ app, factory-resetting it, and re-pairing it into
+Smart Life (once through a generic Tuya IoT Platform cloud project, once
+after power-cycling the pump to rule out a stale cloud sync) each produced a
+`local_key` that the cloud reported as valid — pump shown online, key
+16 bytes, matching what `tinytuya wizard` and the raw `/v1.0/devices/{id}`
+endpoint agreed on — but that never worked locally. Every protocol version
+(3.1-3.4) and both `dev_type` modes came back with either a decrypt failure
+(`904`) or complete silence after the first packet (`914`), and the Cloud
+API's own `getstatus()` stayed an empty list even a day later, `sendcommand`
+rejected DP 108 as an illegal param, and `/functions` reported the product
+outright unsupported (code `2009`). Meanwhile the pump kept working fine
+from the ZKSJ app the entire time. Re-pairing it back into ZKSJ and reading
+the key with the Frida method above worked on the first try.
+
+The likely explanation: this product id is registered in Tuya's system
+under ZKSJ's own OEM/private scope, not the generic Smart Home schema, and
+Smart Life pairing does not provision a functional local session for it even
+though the pairing itself "succeeds". If you hit the same wall, do not
+spend a day on protocol versions and `dev_type` guesses the way this project
+did — go straight to the Frida route.
+
 ### Why not just log in the way the app does?
 
 The app does have its own login, and the chain is fully visible in the
