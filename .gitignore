@@ -6,3 +6,8 @@ __pycache__/
 # hand-installing into a Home Assistant config directory. Generated on
 # demand, never the source of truth.
 zksj_aqua.zip
+
+# Carries live, session-scoped Tuya MQTT credentials pulled from a packet
+# capture of the ZKSJ app. Never commit this -- regenerate it locally with
+# tools/sniff_tls_plaintext.js when the session expires.
+tools/mqtt_probe.py
