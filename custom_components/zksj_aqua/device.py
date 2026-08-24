@@ -12,13 +12,22 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Callable
 from typing import Any
 
 import tinytuya
 from homeassistant.core import HomeAssistant
 
-from .const import CONNECTION_TIMEOUT, PROTOCOL_VERSIONS, TUYA_LOCAL_PORT
+from .cloud import ZksjCloudError, ZksjCloudTransport
+from .const import (
+    CLOUD_PRIME_DELAY,
+    CONNECTION_TIMEOUT,
+    MQTT_FRAME_PREFIX,
+    PROTOCOL_VERSIONS,
+    TUYA_LOCAL_PORT,
+)
 from .protocol import (
+    DP_CUR_MODE,
     DP_FEED,
     DP_GET_MODE,
     encode_get_mode,
@@ -175,6 +184,141 @@ class ZksjDevice:
         if DP_FEED in dps:
             _LOGGER.debug("%s: feed DP present: %s", self.host, dps[DP_FEED])
         return dps
+
+
+class ZksjCloudDevice:
+    """One pump, reached over Tuya's MQTT broker rather than the LAN.
+
+    Presents the same surface as :class:`ZksjDevice` so the coordinator does
+    not have to care which transport it was given, but the shape underneath
+    is different: MQTT pushes state instead of answering polls, so reads are
+    served from whatever the pump last reported and :meth:`async_set` gets no
+    reply of its own -- the echo arrives on the subscription a moment later,
+    through ``on_update``.
+    """
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        *,
+        device_id: str,
+        local_key: str,
+        broker: str,
+        port: int,
+        client_id: str,
+        username: str,
+        password: str,
+        source_id: int,
+    ) -> None:
+        self._hass = hass
+        self.host = broker
+        self.device_id = device_id
+        self._local_key = local_key
+        self._dps: dict[str, Any] = {}
+        self._primed = False
+        self.on_update: Callable[[dict[str, Any]], None] | None = None
+
+        self._transport = ZksjCloudTransport(
+            hass,
+            device_id=device_id,
+            local_key=local_key,
+            broker=broker,
+            port=port,
+            client_id=client_id,
+            username=username,
+            password=password,
+            source_id=source_id,
+        )
+        self._transport.set_listener(self._handle_push)
+
+    @property
+    def version(self) -> str:
+        """The framing version the broker speaks, for display only."""
+        return MQTT_FRAME_PREFIX.decode()
+
+    @property
+    def has_local_key(self) -> bool:
+        """The key is what decrypts the payloads, so it is required here too."""
+        return bool(self._local_key)
+
+    def _handle_push(self, dps: dict[str, Any]) -> None:
+        """A state report arrived on the subscription."""
+        translated = _translate(dps)
+        self._dps.update(translated)
+        if self.on_update is not None:
+            self.on_update(dict(self._dps))
+
+    # -- async surface ----------------------------------------------------
+
+    async def async_connect(self) -> None:
+        try:
+            await self._transport.async_connect()
+        except ZksjCloudError as err:
+            raise ZksjConnectionError(str(err)) from err
+
+    async def async_status(self) -> dict[str, Any]:
+        """Whatever the pump has reported so far."""
+        return dict(self._dps)
+
+    async def async_set(self, dp: str, value: Any) -> dict[str, Any]:
+        """Write one data point.
+
+        Returns nothing to apply: unlike the local protocol there is no ack
+        carrying the new value, so callers fall back to waiting for the push.
+        """
+        try:
+            await self._transport.async_publish({dp: to_wire(dp, value)})
+        except ZksjCloudError as err:
+            raise ZksjConnectionError(str(err)) from err
+        return {}
+
+    async def async_request_dp(self, dp: str) -> dict[str, Any]:
+        """Ask the pump to report a DP, the way the app does on connect."""
+        return await self.async_set(DP_GET_MODE, encode_get_mode(int(dp)))
+
+    async def async_is_reachable(self) -> bool:
+        """Whether the broker session is up.
+
+        This says the pump is reachable *through Tuya*, which is the only
+        sense in which it is reachable at all -- there is no local port
+        answering to fall back on.
+        """
+        return self._transport.connected
+
+    async def async_close(self) -> None:
+        await self._transport.async_disconnect()
+
+    async def async_refresh_all(self, *, need: tuple[str, ...] = ()) -> dict[str, Any]:
+        """The cached picture, priming it on the first call.
+
+        The pump reports state changes as they happen but volunteers nothing
+        on connect, so the first refresh asks for what it is holding; after
+        that the subscription keeps the cache current on its own.
+        """
+        if not self._primed:
+            self._primed = True
+            for dp in (DP_CUR_MODE, *need):
+                try:
+                    await self.async_request_dp(dp)
+                except ZksjConnectionError:
+                    raise
+                except Exception as err:  # noqa: BLE001 - paho raises broadly
+                    _LOGGER.debug("%s: DP %s request failed: %s", self.host, dp, err)
+            # Give the pump a moment to answer before reporting an empty
+            # picture that would blank every entity out.
+            await asyncio.sleep(CLOUD_PRIME_DELAY)
+
+        for dp in need:
+            if dp in self._dps:
+                continue
+            try:
+                await self.async_request_dp(dp)
+            except ZksjConnectionError:
+                raise
+            except Exception as err:  # noqa: BLE001 - paho raises broadly
+                _LOGGER.debug("%s: DP %s request failed: %s", self.host, dp, err)
+
+        return dict(self._dps)
 
 
 def _translate(dps: dict[str, Any]) -> dict[str, Any]:

@@ -1,19 +1,30 @@
 # ZKSJ AQUA wave pump — Home Assistant setup
 
-Local control of a ZKSJ / Zhongke DC wave pump. No Tuya cloud at runtime, no
-Tuya app running, no official Tuya integration involved.
+Control of a ZKSJ / Zhongke DC wave pump, without the vendor app running and
+without the official Tuya integration.
 
 ## What this is, and what it is not
 
-The pump is a Tuya device and Tuya's local protocol is the only language it
-speaks — that part is not a choice. What *is* a choice is whether you go
-through Tuya's cloud to reach it. This integration does not: it opens a
-socket to the pump on your own network, on port 6668, and talks to it
-directly.
+The pump is a Tuya device, and Tuya's protocol is the only language it
+speaks — that part was never a choice. What *looked* like a choice was
+whether to reach it locally or through Tuya's cloud. For this pump it turned
+out not to be one either.
 
-It also decodes the pump's raw hex data points into real entities, which is
-the part generic Tuya integrations skip — and the reason the pump looks
-inert under them. See [PROTOCOL.md](PROTOCOL.md).
+**The wave pump does not answer local control at all.** Not with the wrong
+key, not on the wrong protocol version — at all. A packet capture of the
+vendor app settled it: the app never opens a socket to the pump on port
+6668. Every command it sends goes to Tuya's MQTT broker, and every state
+change comes back from it. There is no local channel to prefer, so the
+integration speaks the same MQTT the app does. See
+[the cloud transport](#cloud-mqtt-the-transport-that-works) below.
+
+The local transport is still here, for a pump or firmware that does answer
+it, and for monitor-only entries. If you are setting up the wave pump this
+document was written for, pick **Cloud (MQTT)**.
+
+Either way, the integration decodes the pump's raw hex data points into real
+entities, which is the part generic Tuya integrations skip — and the reason
+the pump looks inert under them. See [PROTOCOL.md](PROTOCOL.md).
 
 ## What you get
 

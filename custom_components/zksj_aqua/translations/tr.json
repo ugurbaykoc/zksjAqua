@@ -3,6 +3,29 @@
     "step": {
       "user": {
         "title": "ZKSJ dalga pompası",
+        "description": "Home Assistant pompaya nasıl ulaşsın?\n\n**Bulut (MQTT)** dalga pompasında çalışan yol: pompa yerel kontrolü tamamen yok sayıyor, komutları yalnızca Tuya'nın broker'ı üzerinden kabul ediyor — üretici uygulaması da bunu kullanıyor. Uygulamadan bir kez okunan kimlik bilgileri gerekir.\n\n**Yerel** pompayla kendi ağınızda doğrudan konuşur. Yalnızca yerel kontrole yanıt veren bir pompanız veya firmware'iniz varsa denemeye değer.",
+        "menu_options": {
+          "cloud": "Bulut (MQTT) — dalga pompası için önerilen",
+          "local": "Yerel ağ"
+        }
+      },
+      "cloud": {
+        "title": "Bulut (MQTT) bağlantısı",
+        "description": "Bunların hepsi üretici uygulamasının kendi oturumundan alınan tek bir yakalamadan gelir — nasıl alınacağı docs/ZKSJ.md içinde.\n\nKullanıcı adı, şifre, client id ve source id **oturuma bağlıdır**: o oturum sona erdiğinde çalışmayı bırakırlar ve uygulama olmadan yenilemenin bir yolu yok. Pompa kullanılamaz duruma düştüğünde yeni bir yakalama alıp değerleri Yeniden Yapılandır ile girin.",
+        "data": {
+          "device_id": "Cihaz kimliği",
+          "local_key": "Local key (payload'ları çözer)",
+          "mqtt_username": "MQTT kullanıcı adı",
+          "mqtt_password": "MQTT şifresi",
+          "mqtt_client_id": "MQTT client id",
+          "mqtt_source_id": "Source id",
+          "mqtt_broker": "Broker adresi",
+          "mqtt_port": "Broker portu",
+          "name": "Ad"
+        }
+      },
+      "local": {
+        "title": "ZKSJ dalga pompası",
         "description": "Ağınızda yayın yapan Tuya cihazları bunlar. Pompanızı seçin; sadece local key'ini yapıştırmanız yetecek.",
         "data": {
           "selection": "Cihaz"
@@ -26,7 +49,18 @@
           "name": "Ad"
         }
       },
-      "reconfigure": {
+      "reconfigure_cloud": {
+        "title": "MQTT oturumunu yenile",
+        "description": "Broker kimlik bilgileri oturuma bağlıdır ve süresi doluyor; bunları değiştirmek bulut pompasının olağan bakımı, bir şeyin bozulduğunun işareti değil. Uygulamanın oturumundan yeni bir yakalama alıp yeni değerleri yapıştırın.",
+        "data": {
+          "mqtt_username": "MQTT kullanıcı adı",
+          "mqtt_password": "MQTT şifresi",
+          "mqtt_client_id": "MQTT client id",
+          "mqtt_source_id": "Source id",
+          "local_key": "Local key"
+        }
+      },
+      "reconfigure_local": {
         "title": "Pompa bağlantısını güncelle",
         "description": "Yeni bir adres girin, izleme modundaki bir pompaya local key ekleyin veya yeniden eşleştirmeden sonra değişen anahtarı değiştirin. Anahtarı silerseniz pompa izleme moduna döner.",
         "data": {
@@ -36,7 +70,7 @@
       }
     },
     "error": {
-      "cannot_connect": "Pompadan hiçbir Tuya protokol sürümünde yanıt gelmedi. Önce local key'i kontrol edin — yanlış anahtar tıpatıp böyle görünür. Ayrıca pompanın yerel bağlantısını tutan başka bir şey olmadığından emin olun.",
+      "cannot_connect": "Pompaya ulaşılamadı. Bulut kaydında bu neredeyse her zaman MQTT kimlik bilgilerinin süresinin dolduğu anlamına gelir — uygulamanın oturumundan yeni bir yakalama alın. Yerel kayıtta ise önce local key'i kontrol edin: yanlış anahtar tıpatıp böyle görünür.",
       "unknown": "Pompaya erişilirken beklenmeyen bir hata oluştu."
     },
     "abort": {

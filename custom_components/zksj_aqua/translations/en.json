@@ -3,6 +3,29 @@
     "step": {
       "user": {
         "title": "ZKSJ wave pump",
+        "description": "How should Home Assistant reach the pump?\n\n**Cloud (MQTT)** is the one that works on the wave pump: it ignores local control entirely and only accepts commands through Tuya's broker, which is what the vendor app uses too. Needs credentials read out of the app once.\n\n**Local** talks to the pump directly on your own network. Try it only if you have a pump or firmware that answers it.",
+        "menu_options": {
+          "cloud": "Cloud (MQTT) — recommended for the wave pump",
+          "local": "Local network"
+        }
+      },
+      "cloud": {
+        "title": "Cloud (MQTT) connection",
+        "description": "These all come from one capture of the vendor app's own session — see docs/ZKSJ.md for how to take it.\n\nThe username, password, client id and source id are **session-scoped**: they stop working when that session ends, and there is no way to renew them without the app. When the pump goes unavailable, take a fresh capture and paste the new values into Reconfigure.",
+        "data": {
+          "device_id": "Device id",
+          "local_key": "Local key (decrypts the payloads)",
+          "mqtt_username": "MQTT username",
+          "mqtt_password": "MQTT password",
+          "mqtt_client_id": "MQTT client id",
+          "mqtt_source_id": "Source id",
+          "mqtt_broker": "Broker host",
+          "mqtt_port": "Broker port",
+          "name": "Name"
+        }
+      },
+      "local": {
+        "title": "ZKSJ wave pump",
         "description": "These are the Tuya devices broadcasting on your network. Pick your pump; you will only need to paste its local key.",
         "data": {
           "selection": "Device"
@@ -26,7 +49,18 @@
           "name": "Name"
         }
       },
-      "reconfigure": {
+      "reconfigure_cloud": {
+        "title": "Refresh the MQTT session",
+        "description": "The broker credentials are session-scoped and expire; replacing them is the normal upkeep of a cloud pump, not a sign anything is broken. Take a fresh capture of the app's session and paste the new values.",
+        "data": {
+          "mqtt_username": "MQTT username",
+          "mqtt_password": "MQTT password",
+          "mqtt_client_id": "MQTT client id",
+          "mqtt_source_id": "Source id",
+          "local_key": "Local key"
+        }
+      },
+      "reconfigure_local": {
         "title": "Update pump connection",
         "description": "Point Home Assistant at a new address, add a local key to a monitor-only pump, or replace a key that changed after re-pairing. Clearing the key returns the pump to monitor-only.",
         "data": {
@@ -36,7 +70,7 @@
       }
     },
     "error": {
-      "cannot_connect": "No reply from the pump on any Tuya protocol version. Check the local key first — a wrong key looks exactly like this. Also make sure nothing else is holding the pump's local connection open.",
+      "cannot_connect": "Could not reach the pump. On a cloud entry this almost always means the MQTT credentials have expired — take a fresh capture of the app's session. On a local entry, check the local key first: a wrong key looks exactly like this.",
       "unknown": "Unexpected error while contacting the pump."
     },
     "abort": {

@@ -5,8 +5,8 @@
   "config_flow": true,
   "documentation": "https://github.com/ugurbaykoc/mobius-xr15-ha/blob/main/docs/ZKSJ.md",
   "integration_type": "device",
-  "iot_class": "local_polling",
+  "iot_class": "cloud_push",
   "issue_tracker": "https://github.com/ugurbaykoc/mobius-xr15-ha/issues",
-  "requirements": ["tinytuya>=1.13.1"],
-  "version": "0.1.0"
+  "requirements": ["tinytuya>=1.13.1", "paho-mqtt>=1.6.1"],
+  "version": "0.2.0"
 }

@@ -8,13 +8,13 @@ from datetime import timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 
 from .const import DEFAULT_UPDATE_INTERVAL, DOMAIN
-from .device import ZksjConnectionError, ZksjDevice
+from .device import ZksjCloudDevice, ZksjConnectionError, ZksjDevice
 from .protocol import (
     DP_CUR_MODE,
     DP_CUR_POWER,
@@ -67,7 +67,10 @@ class ZksjCoordinator(DataUpdateCoordinator[ZksjState]):
     """Keeps :class:`ZksjState` current and applies edits to the pump."""
 
     def __init__(
-        self, hass: HomeAssistant, entry: ZksjConfigEntry, device: ZksjDevice
+        self,
+        hass: HomeAssistant,
+        entry: ZksjConfigEntry,
+        device: ZksjDevice | ZksjCloudDevice,
     ) -> None:
         super().__init__(
             hass,
@@ -77,6 +80,17 @@ class ZksjCoordinator(DataUpdateCoordinator[ZksjState]):
             update_interval=timedelta(seconds=DEFAULT_UPDATE_INTERVAL),
         )
         self.device = device
+        if isinstance(device, ZksjCloudDevice):
+            # Cloud state is pushed, not polled: take each report as it
+            # lands rather than making entities wait for the next tick.
+            device.on_update = self._handle_pushed_dps
+
+    @callback
+    def _handle_pushed_dps(self, dps: dict[str, Any]) -> None:
+        """A state report arrived from the broker between polls."""
+        state = self._parse(dps)
+        state.reachable = True
+        self.async_set_updated_data(state)
 
     # -- reading ----------------------------------------------------------
 
