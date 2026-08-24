@@ -49,20 +49,116 @@ For the whole program at once, use the `zksj_aqua.set_program` service.
 ## Installation
 
 Needs Home Assistant **2024.12 or newer** (the integration uses
-`entry.runtime_data` and the reconfigure flow). `tinytuya` is pulled in
-automatically.
+`entry.runtime_data` and the reconfigure flow). `tinytuya` and `paho-mqtt`
+are pulled in automatically.
 
 Copy `custom_components/zksj_aqua/` into your Home Assistant `config`
 directory and restart, then **Settings → Devices & Services → Add
 Integration → ZKSJ AQUA**.
 
-You will be asked for three things: the pump's IP address, its device id, and
-its local key. The protocol version is probed automatically.
+The first thing it asks is which transport to use. For the wave pump this
+document was written for, pick **Cloud (MQTT)** — the next section covers
+what it needs. **Local** asks instead for the pump's IP address, device id
+and local key, and probes the protocol version itself.
+
+## Cloud (MQTT): the transport that works
+
+### How we know
+
+The pump gave every appearance of a credentials problem: connections opened
+on port 6668 and then went silent, on every protocol version, with a key
+read straight out of the vendor app. Re-pairing produced a new key with the
+same result. Tuya's own Cloud API was no better — `getstatus` returned an
+empty list for days, `sendcommand` called DP 108 an illegal param, and the
+device's function schema came back `2009: not support this device`.
+
+What settled it was watching the app itself.
+`tools/sniff_tls_plaintext.js` hooks Conscrypt's TLS streams, so it sees
+what the app writes before encryption. Toggling the pump from the app
+produced no local traffic at all — no connection to the pump's address, on
+any port. What it produced was MQTT, to Tuya's China broker:
+
+```
+SUBSCRIBE  smart/mb/in/<device_id>
+PUBLISH    smart/mb/out/<device_id>
+```
+
+Those topics are named from the app's point of view, so `out` is where
+commands go and `in` is where state comes back.
+
+### The envelope
+
+Payloads on both topics are framed like this:
+
+```
+"2.2" ‖ crc32(seq ‖ src ‖ cipher) ‖ seq ‖ src ‖ AES-128-ECB(json)
+```
+
+Integers are big-endian, the CRC covers everything after itself, and the
+cipher key is the device's **`local_key`** — the same credential local
+control would have used. So the key still matters here; it just decrypts
+payloads instead of opening a socket.
+
+Inside is the data-point dict the rest of this integration already speaks:
+
+```json
+app  -> pump   {"data":{"dps":{"108":true}},"protocol":5,"t":1787603668}
+pump -> app    {"protocol":4,"t":1787603669,"data":{"dps":{"108":true}}}
+```
+
+Note the protocol number differs by direction: the app stamps its writes as
+5, the pump answers as 4.
+
+`tests/test_cloud.py` checks the codec against captured frames, including
+rebuilding three of the app's own writes byte for byte — CRC included. That
+last part is the one worth having: a codec that decoded to plausible JSON
+with the fields in the wrong place would pass any round-trip test and still
+be refused by the broker.
+
+### What you have to supply, and what expires
+
+Setup asks for the device id and local key (below), plus four values that
+come from the same capture:
+
+| Field | Where it comes from |
+|---|---|
+| MQTT username | the MQTT CONNECT packet |
+| MQTT password | the MQTT CONNECT packet |
+| MQTT client id | the MQTT CONNECT packet |
+| Source id | the `src` field of any frame the app published |
+
+**These four are session-scoped.** They are minted by the app's own login,
+which cannot be reproduced outside it (see [Why not just log in the way the
+app does?](#why-not-just-log-in-the-way-the-app-does) — the same native
+anti-tamper layer blocks both). When the session behind them ends, the pump
+goes unavailable and the integration logs that the broker refused it.
+
+The fix is not a repair, it is upkeep: take a fresh capture and paste the
+new values into **Reconfigure**. Budget for doing this periodically. Nothing
+in the integration can renew them on its own, and this document would rather
+say so than imply otherwise.
+
+### Taking the capture
+
+With the emulator and `frida-server` from the section below already running:
+
+```bash
+frida -U -f com.zhongkesz.smartaquariumpro -l tools/sniff_tls_plaintext.js
+```
+
+Open the app and toggle the pump. In the output, look for:
+
+- the `MQTT` CONNECT frame — it carries the client id, username and password
+  in plain text, one after another
+- any `smart/mb/out/...` publish — bytes 11-15 of its payload (just after
+  `"2.2"`, the CRC and the sequence) are the source id
+
+`tools/mqtt_probe.py` is a standalone client for checking a set of
+credentials before putting them into Home Assistant.
 
 ## Getting the device id and local key
 
-These two values are what let Home Assistant open a local connection to the
-pump. They are minted when the pump is paired.
+Both transports need these two. They are minted when the pump is paired.
 
 The app already has both — it needs them for LAN control — so the shortest
 route is to read them out of the app, which changes nothing about your
@@ -130,7 +226,8 @@ leaves the ZKSJ app. Your other ZKSJ devices stay where they are, and Home
 Assistant covers everything the app did for the pump — but vendor firmware
 updates for it go with it.
 
-Either way, once the integration is configured nothing contacts Tuya again.
+Either way, a configured *local* entry never contacts Tuya again. A cloud
+entry contacts it constantly — that is the whole transport.
 
 **In practice, this did not work for the wave pump.** Two full cycles of
 removing it from the ZKSJ app, factory-resetting it, and re-pairing it into
@@ -240,16 +337,24 @@ midnight means the end of the day.
 
 ## Troubleshooting
 
-**"No reply from the pump on any Tuya protocol version."** The IP, device id
-or local key is wrong, or something else is holding the pump's local
-connection. Tuya devices accept only a small number of concurrent local
-connections — close the vendor app, and do not point two integrations at the
-same pump.
+**A cloud pump went unavailable, and the log says the broker refused the
+session.** The MQTT credentials expired. This is expected upkeep rather than
+a fault: take a fresh capture and paste the new values into Reconfigure. See
+[what expires](#what-you-have-to-supply-and-what-expires).
+
+**"No reply from the pump on any Tuya protocol version."** On a *local*
+entry: the IP, device id or local key is wrong, or something else is holding
+the pump's local connection — close the vendor app, and do not point two
+integrations at the same pump.
+
+If that is the wave pump and the key is definitely right, this is what its
+particular failure looks like, and no amount of re-pairing will fix it: it
+does not answer local control. Set it up as **Cloud (MQTT)** instead.
 
 **The wave mode and flow controls are greyed out.** The pump has not reported
-its program yet. Press **Sync clock**, or wait for the next poll; the
-integration asks for DP 101 explicitly (the pump does not volunteer it), but
-a pump that is powered down cannot answer.
+its program yet. Press **Sync clock**, or wait a moment; the integration asks
+for DP 101 explicitly on connect (the pump does not volunteer it), but a pump
+that is powered down cannot answer.
 
 **Timed programs run at the wrong hour.** The pump's clock drifts and resets
 on power loss. Press **Sync clock**, or automate it:
@@ -268,10 +373,14 @@ automation:
 
 ## Going further: removing Tuya's firmware
 
-Everything above removes Tuya's *cloud*, its *app*, and its *account* from
-your setup. What it cannot remove is Tuya's **protocol** — that is the only
-language the pump's radio speaks, and no amount of software on the Home
-Assistant side changes it.
+Everything above removes Tuya's *app* from your setup, and gives you real
+entities instead of an inert device. What it does not remove, for this pump,
+is Tuya's **cloud**: commands go to a broker in China and come back, because
+that is the only channel the pump's firmware offers. Nor does it remove
+Tuya's **protocol**, which is the only language its radio speaks.
+
+That is a real cost, and worth naming plainly: the pump depends on someone
+else's server staying up, and on credentials that expire.
 
 Removing it for real means replacing the firmware on the pump's Wi-Fi module,
 with [tuya-cloudcutter](https://github.com/tuya-cloudcutter/tuya-cloudcutter)
