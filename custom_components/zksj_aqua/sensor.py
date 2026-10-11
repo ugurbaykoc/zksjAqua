@@ -4,8 +4,14 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
-from homeassistant.components.sensor import SensorEntity, SensorEntityDescription
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
 from homeassistant.const import EntityCategory, UnitOfTime
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
@@ -18,7 +24,7 @@ from .entity import ZksjEntity
 class ZksjSensorDescription(SensorEntityDescription):
     """A sensor and the state field behind it."""
 
-    value_fn: Callable[[ZksjState], int | None]
+    value_fn: Callable[[ZksjState], int | datetime | None]
 
 
 SENSORS: tuple[ZksjSensorDescription, ...] = (
@@ -34,6 +40,24 @@ SENSORS: tuple[ZksjSensorDescription, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         entity_registry_enabled_default=False,
         value_fn=lambda state: len(state.program) or None,
+    ),
+    # The pump's own clock, which it keeps to run time-based programs. It
+    # stays unknown on a pump that does not answer DP 122 -- a channel the
+    # app shares across ZKSJ products, so not every one of them will.
+    ZksjSensorDescription(
+        key="pump_clock",
+        translation_key="pump_clock",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda state: state.clock,
+    ),
+    ZksjSensorDescription(
+        key="clock_drift",
+        translation_key="clock_drift",
+        native_unit_of_measurement=UnitOfTime.SECONDS,
+        state_class=SensorStateClass.MEASUREMENT,
+        entity_category=EntityCategory.DIAGNOSTIC,
+        value_fn=lambda state: state.clock_drift,
     ),
 )
 
@@ -61,7 +85,7 @@ class ZksjSensor(ZksjEntity, SensorEntity):
         self.entity_description = description
 
     @property
-    def native_value(self) -> int | None:
+    def native_value(self) -> int | datetime | None:
         return self.entity_description.value_fn(self.pump_state)
 
     @property

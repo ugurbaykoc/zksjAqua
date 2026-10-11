@@ -88,6 +88,12 @@
       },
       "sync_time": {
         "name": "Saati eşitle"
+      },
+      "sync_clock": {
+        "name": "Pompa saatini kalibre et"
+      },
+      "request_clock": {
+        "name": "Pompa saatini oku"
       }
     },
     "number": {
@@ -123,6 +129,12 @@
       },
       "program_segments": {
         "name": "Program segmentleri"
+      },
+      "pump_clock": {
+        "name": "Pompa saati"
+      },
+      "clock_drift": {
+        "name": "Pompa saati sapması"
       }
     },
     "binary_sensor": {

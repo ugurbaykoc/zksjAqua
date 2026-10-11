@@ -27,9 +27,9 @@ from .const import (
     TUYA_LOCAL_PORT,
 )
 from .protocol import (
-    DP_CUR_MODE,
     DP_FEED,
     DP_GET_MODE,
+    QUERY_ALL_DPS,
     encode_get_mode,
     from_wire,
     to_wire,
@@ -276,6 +276,15 @@ class ZksjCloudDevice:
         """Ask the pump to report a DP, the way the app does on connect."""
         return await self.async_set(DP_GET_MODE, encode_get_mode(int(dp)))
 
+    async def async_request_all_dps(self) -> dict[str, Any]:
+        """Ask the pump to report everything it is holding.
+
+        The app's own home page opens with exactly this -- one request for
+        data point 0 rather than one per data point, each of which would
+        otherwise be its own publish.
+        """
+        return await self.async_set(DP_GET_MODE, encode_get_mode(QUERY_ALL_DPS))
+
     async def async_is_reachable(self) -> bool:
         """Whether the broker session is up.
 
@@ -297,15 +306,15 @@ class ZksjCloudDevice:
         """
         if not self._primed:
             self._primed = True
-            for dp in (DP_CUR_MODE, *need):
-                try:
-                    await self.async_request_dp(dp)
-                except ZksjConnectionError:
-                    raise
-                except Exception as err:  # noqa: BLE001 - paho raises broadly
-                    _LOGGER.debug("%s: DP %s request failed: %s", self.host, dp, err)
+            try:
+                await self.async_request_all_dps()
+            except ZksjConnectionError:
+                raise
+            except Exception as err:  # noqa: BLE001 - paho raises broadly
+                _LOGGER.debug("%s: opening state request failed: %s", self.host, err)
             # Give the pump a moment to answer before reporting an empty
-            # picture that would blank every entity out.
+            # picture that would blank every entity out.  Anything the dump
+            # left out is still picked up one by one below.
             await asyncio.sleep(CLOUD_PRIME_DELAY)
 
         for dp in need:

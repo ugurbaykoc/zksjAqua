@@ -3,10 +3,10 @@
   "name": "ZKSJ AQUA",
   "codeowners": ["@ugurbaykoc"],
   "config_flow": true,
-  "documentation": "https://github.com/ugurbaykoc/mobius-xr15-ha/blob/main/docs/ZKSJ.md",
+  "documentation": "https://github.com/ugurbaykoc/zksjAqua/blob/main/docs/ZKSJ.md",
   "integration_type": "device",
   "iot_class": "cloud_push",
-  "issue_tracker": "https://github.com/ugurbaykoc/mobius-xr15-ha/issues",
+  "issue_tracker": "https://github.com/ugurbaykoc/zksjAqua/issues",
   "requirements": ["tinytuya>=1.13.1", "paho-mqtt>=1.6.1"],
-  "version": "0.2.0"
+  "version": "0.3.0"
 }

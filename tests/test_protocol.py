@@ -260,3 +260,69 @@ class TestWireEncoding:
         assert all(s.type == protocol.WaveType.CONSTANT for s in segments)
         assert all(s.min_power == 0 and s.max_power == 0 for s in segments)
         assert all(s.start_time == 0 and s.end_time == 0 for s in segments)
+
+
+class TestGetMode:
+    def test_query_all_asks_for_data_point_zero(self):
+        # What SmartWaveHomeActivity.publishDpGetMode sends: identity 0,
+        # queryDp 0. Captured on the wire from the app as base64 "AAAA".
+        payload = protocol.encode_get_mode(protocol.QUERY_ALL_DPS)
+        assert payload == "000000"
+        assert protocol.to_wire(protocol.DP_GET_MODE, payload) == "AAAA"
+
+    def test_a_specific_data_point_is_two_big_endian_bytes(self):
+        assert protocol.encode_get_mode(101) == "000065"
+        assert protocol.encode_get_mode(101, identity=3) == "030065"
+
+
+class TestClock:
+    """DP 122 clock reports, per CurrencyDpHandle.dp_122.
+
+    Every field is a hex byte (ValueUtils.toInt10 is Integer.valueOf(s, 16)),
+    which is what makes 2026 travel as 0x1a rather than as the digits "26".
+    """
+
+    def test_decodes_a_report_the_way_the_app_does(self):
+        clock = protocol.decode_clock("04011a0a0b07123b09")
+        assert clock.year == 2026
+        assert clock.month == 10
+        assert clock.day == 11
+        assert (clock.hour, clock.minute, clock.second) == (18, 59, 9)
+
+    def test_a_report_missing_its_leading_command_byte_is_padded(self):
+        # The app prepends "04" to a 16-character payload; both spellings
+        # have to land on the same time.
+        assert protocol.decode_clock("011a0a0b07123b09") == protocol.decode_clock(
+            "04011a0a0b07123b09"
+        )
+
+    def test_case_does_not_matter(self):
+        assert protocol.decode_clock("04011A0A0B07123B09") == protocol.decode_clock(
+            "04011a0a0b07123b09"
+        )
+
+    @pytest.mark.parametrize(
+        "payload",
+        ["03", "04", "01", "", "04021a0a0b07123b09", "04011a0a0b07123b"],
+        ids=["sync-cmd", "query-cmd", "reset-cmd", "empty", "wrong-kind", "short"],
+    )
+    def test_anything_that_is_not_a_clock_report_is_rejected(self, payload):
+        # The commands we write travel on this same data point, so the
+        # decoder has to turn them away rather than invent a time.
+        with pytest.raises(ZksjProtocolError):
+            protocol.decode_clock(payload)
+
+    def test_an_impossible_date_is_rejected_rather_than_clamped(self):
+        # Month 0 passes the app's own bounds check (it allows 0-12) and
+        # would still be nonsense.
+        with pytest.raises(ZksjProtocolError):
+            protocol.decode_clock("04011a000b07123b09")
+
+    def test_the_command_channel_is_never_base64_wrapped(self):
+        # DP 122 carries plain strings, unlike the raw blobs on 101-107:
+        # the app puts "04" on the wire verbatim, and so must we.
+        assert protocol.DP_COMMON not in protocol.RAW_DPS
+        assert (
+            protocol.to_wire(protocol.DP_COMMON, protocol.COMMON_QUERY_CLOCK) == "04"
+        )
+        assert protocol.from_wire(protocol.DP_COMMON, "04") == "04"

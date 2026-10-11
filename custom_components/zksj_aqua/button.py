@@ -40,6 +40,20 @@ BUTTONS: tuple[ZksjButtonDescription, ...] = (
         entity_category=EntityCategory.CONFIG,
         press_fn=lambda coordinator: coordinator.async_sync_time(),
     ),
+    ZksjButtonDescription(
+        key="sync_clock",
+        translation_key="sync_clock",
+        entity_category=EntityCategory.CONFIG,
+        press_fn=lambda coordinator: coordinator.async_sync_clock(),
+    ),
+    # Worth having on its own: it is how you find out whether a given pump
+    # answers DP 122 at all, without changing anything on it.
+    ZksjButtonDescription(
+        key="request_clock",
+        translation_key="request_clock",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        press_fn=lambda coordinator: coordinator.async_request_clock(),
+    ),
 )
 
 

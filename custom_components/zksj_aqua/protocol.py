@@ -25,7 +25,14 @@ DP   Name            R/W    Payload
 106  get_mode        W      ``identity,query_dp`` -- asks the pump to report a DP
 107  sync_time       W      4 bytes, milliseconds since local midnight
 108  switch          R/W    bool, pump on/off
+122  common          R/W    shared command channel -- clock, resets; see below
 ===  ==============  =====  =====================================================
+
+DP 122 is the odd one out.  It is not a wave-pump data point at all: it is
+the channel the app shares across every ZKSJ product (its own
+``CurrencyDpHandle``), and the device list writes to it on load whatever the
+product is.  Its value is a plain string rather than a raw blob, so unlike
+DPs 101-107 it is never base64-wrapped.
 """
 
 from __future__ import annotations
@@ -33,6 +40,7 @@ from __future__ import annotations
 import base64
 import binascii
 from dataclasses import dataclass
+from datetime import datetime
 from enum import IntEnum
 from typing import Any, Final
 
@@ -44,6 +52,7 @@ DP_WAVE_ACTION: Final = "105"
 DP_GET_MODE: Final = "106"
 DP_SYNC_TIME: Final = "107"
 DP_SWITCH: Final = "108"
+DP_COMMON: Final = "122"
 
 SEGMENT_SIZE: Final = 12
 SECONDS_PER_DAY: Final = 86400
@@ -250,11 +259,18 @@ def encode_preview(segment: WaveSegment, *, start: bool, duration: int) -> str:
     return bytes(raw).hex()
 
 
+# Asking for data point 0 is how the app's own home page opens: "report
+# everything you have", rather than one request per data point
+# (SmartWaveHomeActivity.publishDpGetMode sets identity and queryDp to 0).
+QUERY_ALL_DPS: Final = 0
+
+
 def encode_get_mode(query_dp: int, identity: int = 0) -> str:
     """DP 106 payload: ask the pump to report ``query_dp``.
 
     The pump does not volunteer the program on connect, so this is how a
-    fresh coordinator gets a first picture of it.
+    fresh coordinator gets a first picture of it.  Pass
+    :data:`QUERY_ALL_DPS` to ask for the lot in one write.
     """
     return bytes([identity & 0xFF, *query_dp.to_bytes(2, "big")]).hex()
 
@@ -268,6 +284,51 @@ def encode_sync_time(seconds_since_midnight: int, milliseconds: int = 0) -> str:
     """
     value = seconds_since_midnight * 1000 + milliseconds
     return value.to_bytes(4, "big").hex()
+
+
+# DP 122 commands, as the app writes them.  There is a fourth, ``"01"``,
+# which unpairs the device and returns it to factory state -- the app sends
+# it behind a confirmation dialog.  It is named here only so that nobody
+# rediscovers it the hard way; this integration never sends it, and a
+# command constant for it is deliberately absent.  ``"02"`` appears nowhere.
+COMMON_SYNC_CLOCK: Final = "03"
+COMMON_QUERY_CLOCK: Final = "04"
+
+_CLOCK_REPORT_PREFIX: Final = "0401"
+_CLOCK_REPORT_LENGTH: Final = 18
+
+
+def decode_clock(payload: str) -> datetime:
+    """Parse a DP 122 clock report, as a naive local datetime.
+
+    Nine bytes rendered as hex text: ``04 01 YY MM DD WW hh mm ss``, where
+    ``YY`` is the year within the century and ``WW`` is a weekday the app
+    reads past without using.  Reports sometimes arrive without the leading
+    ``04``, which the app pads back on before parsing, so this does too.
+
+    This is the only DP 122 payload worth decoding; the rest of what travels
+    on that channel is the short command strings we write.  Those raise,
+    which is what callers want -- a command echo is not a clock.
+    """
+    text = payload.lower().strip() if isinstance(payload, str) else ""
+    if len(text) == _CLOCK_REPORT_LENGTH - 2:
+        text = "04" + text
+    if len(text) != _CLOCK_REPORT_LENGTH or not text.startswith(_CLOCK_REPORT_PREFIX):
+        raise ZksjProtocolError(
+            f"DP {DP_COMMON} payload is not a clock report: {payload!r}"
+        )
+
+    raw = _unhex(text, DP_COMMON)
+    year, month, day, _weekday, hour, minute, second = raw[2:9]
+    try:
+        # Naive on purpose: the pump keeps wall time for its own timezone,
+        # which Tuya set when it was paired, and this module stays free of
+        # Home Assistant -- so attaching the zone is the coordinator's job.
+        return datetime(2000 + year, month, day, hour, minute, second)  # noqa: DTZ001
+    except ValueError as err:
+        raise ZksjProtocolError(
+            f"DP {DP_COMMON} clock report is not a real time: {payload!r}"
+        ) from err
 
 
 def _unhex(payload: str, dp: str) -> bytes:

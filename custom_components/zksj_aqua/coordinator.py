@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
@@ -16,6 +16,9 @@ from homeassistant.util import dt as dt_util
 from .const import DEFAULT_UPDATE_INTERVAL, DOMAIN
 from .device import ZksjCloudDevice, ZksjConnectionError, ZksjDevice
 from .protocol import (
+    COMMON_QUERY_CLOCK,
+    COMMON_SYNC_CLOCK,
+    DP_COMMON,
     DP_CUR_MODE,
     DP_CUR_POWER,
     DP_FEED,
@@ -28,6 +31,7 @@ from .protocol import (
     ZksjProtocolError,
     active_segment_index,
     clamp,
+    decode_clock,
     decode_feed,
     decode_power,
     decode_program,
@@ -52,6 +56,10 @@ class ZksjState:
     power: int | None = None
     program: list[WaveSegment] = field(default_factory=list)
     feed: FeedState | None = None
+    # The pump's own calendar clock (DP 122), and how far behind local time
+    # it was when it last reported -- positive means the pump is slow.
+    clock: datetime | None = None
+    clock_drift: int | None = None
 
     def active_index(self, seconds_of_day: int) -> int | None:
         if not self.program:
@@ -80,6 +88,7 @@ class ZksjCoordinator(DataUpdateCoordinator[ZksjState]):
             update_interval=timedelta(seconds=DEFAULT_UPDATE_INTERVAL),
         )
         self.device = device
+        self._clock_requested = False
         if isinstance(device, ZksjCloudDevice):
             # Cloud state is pushed, not polled: take each report as it
             # lands rather than making entities wait for the next tick.
@@ -123,7 +132,25 @@ class ZksjCoordinator(DataUpdateCoordinator[ZksjState]):
             raise UpdateFailed(f"{self.device.host}: {err}") from err
         state = self._parse(dps)
         state.reachable = True
+        if not self._clock_requested:
+            self._clock_requested = True
+            await self._async_prime_clock()
         return state
+
+    async def _async_prime_clock(self) -> None:
+        """Ask once for the pump's calendar clock (DP 122).
+
+        The pump never volunteers it; the app asks on every page it opens.
+        This deliberately writes straight to the transport instead of going
+        through :meth:`_write`, which would schedule a refresh from inside
+        the refresh we are already in.  It is also allowed to fail quietly:
+        DP 122 is a channel the app shares across ZKSJ products, and a pump
+        that does not answer it should cost us one sensor, not the device.
+        """
+        try:
+            await self.device.async_set(DP_COMMON, COMMON_QUERY_CLOCK)
+        except Exception as err:  # noqa: BLE001 - transports raise broadly
+            _LOGGER.debug("%s: clock request failed: %s", self.device.host, err)
 
     def _parse(self, dps: dict[str, Any]) -> ZksjState:
         """Decode a DP mapping, keeping whatever still parses.
@@ -137,6 +164,8 @@ class ZksjCoordinator(DataUpdateCoordinator[ZksjState]):
             on=previous.on,
             power=previous.power,
             program=previous.program,
+            clock=previous.clock,
+            clock_drift=previous.clock_drift,
         )
 
         if DP_SWITCH in dps:
@@ -159,6 +188,18 @@ class ZksjCoordinator(DataUpdateCoordinator[ZksjState]):
                 state.feed = decode_feed(dps[DP_FEED])
             except ZksjProtocolError as err:
                 _LOGGER.debug("%s: %s", self.device.host, err)
+
+        if DP_COMMON in dps:
+            # The same channel carries the short commands we write, so a
+            # payload that is not a clock report is ordinary traffic rather
+            # than a fault -- hence debug, not a warning.
+            try:
+                reported = decode_clock(dps[DP_COMMON])
+            except ZksjProtocolError as err:
+                _LOGGER.debug("%s: %s", self.device.host, err)
+            else:
+                state.clock = reported.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
+                state.clock_drift = round((dt_util.now() - state.clock).total_seconds())
 
         return state
 
@@ -216,6 +257,21 @@ class ZksjCoordinator(DataUpdateCoordinator[ZksjState]):
     async def async_sync_time(self) -> None:
         """Push local time, so time-based programs run when they should."""
         await self._write(DP_SYNC_TIME, encode_sync_time(self.seconds_of_day))
+
+    async def async_request_clock(self) -> None:
+        """Ask the pump to report its calendar clock."""
+        await self._write(DP_COMMON, COMMON_QUERY_CLOCK)
+
+    async def async_sync_clock(self) -> None:
+        """Have the pump re-calibrate its calendar clock, then re-read it.
+
+        DP 107 only carries a time of day, so it leaves the pump's date
+        alone; this is the command the app uses when the whole clock has
+        drifted.  The pump answers on its own schedule, so the follow-up
+        request is what gets the sensor to show the result.
+        """
+        await self._write(DP_COMMON, COMMON_SYNC_CLOCK)
+        await self.async_request_clock()
 
     async def async_set_program(self, segments: list[WaveSegment]) -> None:
         await self._write(DP_CUR_MODE, encode_program(segments))

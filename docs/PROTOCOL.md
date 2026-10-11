@@ -45,9 +45,56 @@ hex strings.
 | `106` | `get_mode` | W | `identity(1) + query_dp(2)` — asks the pump to report a DP |
 | `107` | `sync_time` | W | 4 bytes, milliseconds since local midnight |
 | `108` | `switch` | R/W | bool — pump on/off |
+| `122` | *(common)* | R/W | short command string — the clock channel, see below |
 
 DP `111` exists but the app strips it for every product outside a hardcoded
 allow-list (`CommandManager.FILTER_PRODUCT`), none of which are wave pumps.
+
+### Asking for everything at once (DP 106)
+
+`query_dp` is a DP number, but **0 means "report the lot"**. That is what the
+app's own home page opens with — `SmartWaveHomeActivity.publishDpGetMode`
+sets both `identity` and `queryDp` to 0 — rather than one request per data
+point. Captured on the wire as base64 `AAAA`, i.e. three zero bytes.
+
+### Common command channel (DP 122)
+
+The odd one out: not a wave-pump data point at all, but the channel the app
+shares across every ZKSJ product (`currency/CurrencyDpHandle`), and the one
+the device list writes to on load whatever the product is. Its value is a
+**plain string, never base64-wrapped** — unlike DPs 101–107.
+
+| Value | Direction | Meaning |
+|---|---|---|
+| `01` | app → device | **factory reset / unpair.** The app sends it behind a confirmation dialog |
+| `03` | app → device | calibrate the clock |
+| `04` | app → device | report the clock |
+| `04 01 YY MM DD WW hh mm ss` | device → app | the pump's calendar clock |
+| `02` | — | appears nowhere in the app |
+
+Every field of a report is a **hex byte**: `ValueUtils.toInt10` is
+`Integer.valueOf(s, 16)`, which is what makes 2026 travel as `1a` rather than
+as the digits `26`. `YY` is the year within the century, and `WW` is a
+weekday the app reads past without using. A report sometimes arrives without
+its leading `04`, which `CurrencyDpHandle.dp_122` pads back on.
+
+This is the pump's own calendar clock, and it is a different thing from DP
+107: `sync_time` carries a time of day only, so it leaves the date alone.
+On receiving a report the app compares it against local time
+(`DateUtil.calLastedTime`, which returns **seconds**) and re-sends `03`
+once the pump is off by 10 s or more.
+
+Because `01` is one byte away from the command we want, this integration
+sends only `03` and `04` and defines no constant for `01` at all.
+
+**Unverified on the wave pump.** In a capture of the app controlling a
+ZK-WP1, the app wrote `122` → `04` on startup and the pump answered with
+DPs 101, 104 and 107 — no `122` report came back. None of the `smart_wave`
+activities touch `122` either; the senders are `SetActivity`,
+`ArrangementSetActivity`, `SmartSocketSettingActivity` and the device list.
+So `122` may well belong to the smart socket, with the device list writing
+it blindly to everything. The codec above is faithful to the app; whether a
+given pump answers is a question for the *Read pump clock* button.
 
 ### Wave segment (12 bytes)
 

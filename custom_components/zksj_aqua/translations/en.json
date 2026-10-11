@@ -88,6 +88,12 @@
       },
       "sync_time": {
         "name": "Sync clock"
+      },
+      "sync_clock": {
+        "name": "Calibrate pump clock"
+      },
+      "request_clock": {
+        "name": "Read pump clock"
       }
     },
     "number": {
@@ -123,6 +129,12 @@
       },
       "program_segments": {
         "name": "Program segments"
+      },
+      "pump_clock": {
+        "name": "Pump clock"
+      },
+      "clock_drift": {
+        "name": "Pump clock drift"
       }
     },
     "binary_sensor": {
